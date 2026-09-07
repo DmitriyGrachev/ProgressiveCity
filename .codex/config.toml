@@ -1,0 +1,12 @@
+# Project defaults; reviewed against official Codex documentation on 2026-09-07.
+# Requires an account/client with access to gpt-6-astra.
+# Do not mix sandbox_mode with a default_permissions profile; see docs/CODEX_SETTINGS.md.
+model = "gpt-6-astra"
+model_reasoning_effort = "high"
+approval_policy = "on-request"
+approvals_reviewer = "user"
+sandbox_mode = "workspace-write"
+web_search = "live"
+
+[sandbox_workspace_write]
+network_access = false
