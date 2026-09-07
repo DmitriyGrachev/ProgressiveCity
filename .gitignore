@@ -1,0 +1,22 @@
+node_modules/
+.tools/
+.npm-cache/
+dist/
+coverage/
+playwright-report/
+test-results/
+*.log
+.DS_Store
+Thumbs.db
+.env
+.env.*
+!.env.example
+local-backups/
+*.progresscity.zip
+.codex/auth.json
+.codex/history.jsonl
+.codex/sessions/
+.codex/log/
+.codex/state_*.sqlite*
+# Commit .codex/config.toml, package-lock.json, and synthetic review evidence.
+# Never copy the global ~/.codex directory into this repository.
