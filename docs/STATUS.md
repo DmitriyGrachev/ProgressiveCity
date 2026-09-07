@@ -46,3 +46,7 @@ Chromium 153.0.8010.12, настоящий WebGL через SwiftShader и на�
 Перед коммитом повторно выполнены lint, typecheck, test:unit (20/20), test:e2e (9/9, 30.2 с) и build — все завершились с exit 0. Предупреждение о размере bundle осталось. Проверка diff отметила только исходные двойные пробелы для Markdown-переносов в CONCEPT.md; документ сохранён без изменений.
 
 Главные файлы передачи: `../README.md`, `ARCHITECTURE.md`, `REVIEW_REPORT.md`, `../src/storage/service.ts`, `../src/storage/validation.ts`, `../src/storage/backup.ts`, `../src/notes/save-session.ts`, `../src/city/engine.ts`, `../tests`.
+
+## Итог публикации
+
+По отдельному запросу пользователя проект опубликован через подключённый плагин GitHub в `DmitriyGrachev/ProgressiveCity`, ветка `main`. Основной коммит MVP: `c63a7405c28637a9bdd198667314c71e69c832ac`. Все 65 файлов, включая бинарные скриншоты, совпали с подготовленным локальным деревом Git (`72448ba7db9bded613354ba78911316f2b300e62`); `git diff HEAD origin/main` завершился без различий. Локальная `main` отслеживает `origin/main`; исходный локальный коммит сохранён в ветке `local-initial-mvp`. Обычный git push потребовал отдельного входа в Git Credential Manager, поэтому публикация выполнена через авторизованный API плагина. PR и деплой не выполнялись.
