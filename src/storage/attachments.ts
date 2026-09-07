@@ -1,7 +1,8 @@
 import { id } from "../domain/model";
 import type { Attachment } from "../domain/model";
 import { CityDB } from "./db";
-export const IMAGE_LIMIT = 5 * 1024 * 1024;
+import { IMAGE_LIMIT } from "./limits";
+export { IMAGE_LIMIT } from "./limits";
 export async function validateImage(blob: Blob, mime: string) {
   if (
     !["image/png", "image/jpeg", "image/webp"].includes(mime) ||
@@ -28,6 +29,8 @@ export async function validateImage(blob: Blob, mime: string) {
 export async function addAttachment(
   db: CityDB,
   file: File,
+  expectedEpoch?: string,
+  retain?: (attachment: Attachment) => void,
 ): Promise<Attachment> {
   await validateImage(file, file.type);
   const attachment = {
@@ -37,6 +40,16 @@ export async function addAttachment(
     size: file.size,
     blob: new Blob([await file.arrayBuffer()], { type: file.type }),
   };
-  await db.attachments.add(attachment);
+  retain?.(attachment);
+  await db.transaction("rw", [db.metadata, db.attachments], async () => {
+    if (
+      expectedEpoch !== undefined &&
+      (await db.metadata.get("epoch"))?.value !== expectedEpoch
+    )
+      throw new Error(
+        "Город заменён в другой вкладке. Изображение осталось в локальном черновике для выгрузки.",
+      );
+    await db.attachments.add(attachment);
+  });
   return attachment;
 }

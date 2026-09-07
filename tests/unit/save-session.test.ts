@@ -12,6 +12,33 @@ const note: Note = {
   updatedAt: "",
   revision: 0,
 };
+it("keeps newer draft edits dirty when an older conflicting copy finishes", async () => {
+  const written: Note[] = [];
+  const session = new SaveSession(
+    note,
+    async (n) => {
+      written.push(n);
+      return { ...n, revision: n.revision + 1 };
+    },
+    () => {},
+  );
+  session.update({ text: "At copy click" });
+  const copiedDraft = session.draft;
+  session.update({ text: "At copy click + latest sentence" });
+  session.acceptSavedCopy(
+    { ...copiedDraft, id: "copy", revision: 1 },
+    copiedDraft,
+  );
+  expect(session.draft.text).toBe("At copy click + latest sentence");
+  expect(session.dirty).toBe(true);
+  await session.flush();
+  expect(written[0]).toMatchObject({
+    id: "copy",
+    revision: 1,
+    text: "At copy click + latest sentence",
+  });
+  session.dispose();
+});
 it("flushes the newest edit even if it arrives while a previous write is pending", async () => {
   let release!: () => void;
   const pending = new Promise<void>((resolve) => {

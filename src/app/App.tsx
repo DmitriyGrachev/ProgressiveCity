@@ -1,6 +1,5 @@
 import { useState } from "react";
-import { useLiveQuery } from "dexie-react-hooks";
-import { db } from "../storage/db";
+import { useCityData } from "./use-city-data";
 import { service } from "../storage/service";
 import { act, navigate, useUI, type Panel } from "./ui";
 import { CityCanvas } from "../city/CityCanvas";
@@ -12,6 +11,7 @@ import { Districts } from "../features/Districts";
 import { History } from "../features/History";
 import { Settings } from "../features/Settings";
 import { InitialRestore } from "../features/InitialRestore";
+import { RecoveryTray } from "../notes/recovery";
 
 function Onboarding() {
   const [name, setName] = useState("Мой город");
@@ -118,7 +118,7 @@ function Icon({ kind }: { kind: string }) {
   );
 }
 export function App() {
-  const data = useLiveQuery(() => db.read());
+  const data = useCityData();
   const panel = useUI((s) => s.panel);
   const trackId = useUI((s) => s.trackId);
   const buildingId = useUI((s) => s.buildingId);
@@ -137,12 +137,16 @@ export function App() {
   );
   if (!data)
     return (
-      <main className="loading">Открываем локальный город…{errorBanner}</main>
+      <main className="loading">
+        Открываем локальный город…{errorBanner}
+        <RecoveryTray />
+      </main>
     );
   if (!data.city)
     return (
       <>
         {errorBanner}
+        <RecoveryTray />
         <Onboarding />
       </>
     );
@@ -165,6 +169,7 @@ export function App() {
         </span>
       </header>
       {errorBanner}
+      <RecoveryTray />
       <div className={`workspace ${panel ? "panel-open" : ""}`}>
         <aside className="sidebar">
           <nav aria-label="Основная навигация">
@@ -248,7 +253,7 @@ export function App() {
             </button>
           </div>
         </aside>
-        <CityCanvas data={data} />
+        <CityCanvas />
         {panel && (
           <aside className="detail-panel" aria-label="Панель города">
             <button

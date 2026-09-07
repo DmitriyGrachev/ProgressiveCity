@@ -3,7 +3,7 @@ import type { Building, CityData, Snapshot } from "../domain/model";
 import { canPlace, gridToIso, isoToGrid, MAP_SIZE } from "../domain/rules";
 import { buildingArt } from "./art";
 export interface SceneInput {
-  data: CityData;
+  data: Pick<CityData, "city" | "tracks" | "buildings" | "districts">;
   selected: string | null;
   placement: Building | null;
   snapshot?: Snapshot;

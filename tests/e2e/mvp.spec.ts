@@ -1,5 +1,7 @@
 import { test, expect } from "@playwright/test";
-test("city, material, result, improvement and reload", async ({ page }) => {
+test("city, material, result, improvement and reload", async ({
+  page,
+}, testInfo) => {
   const errors: string[] = [];
   page.on("pageerror", (e) => errors.push(e.message));
   await page.goto("/");
@@ -38,5 +40,10 @@ test("city, material, result, improvement and reload", async ({ page }) => {
   await page.getByLabel("Поиск материалов").fill("акварелью");
   await page.getByRole("button", { name: "Свет и тень", exact: true }).click();
   await expect(page.locator(".tiptap")).toContainText("эксперимент");
+  if (String(testInfo.project.use.baseURL).endsWith(":4174"))
+    await page.screenshot({
+      path: "docs/review-evidence/built-mvp.png",
+      fullPage: true,
+    });
   expect(errors).toEqual([]);
 });

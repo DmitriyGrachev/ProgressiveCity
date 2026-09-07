@@ -1,14 +1,32 @@
 import { useEffect, useRef } from "react";
-import type { CityData } from "../domain/model";
+import { useLiveQuery } from "dexie-react-hooks";
+import { db } from "../storage/db";
 import { useUI, act, navigate, reportError } from "../app/ui";
 import { service } from "../storage/service";
 import { CityEngine } from "./engine";
-export function CityCanvas({ data }: { data: CityData }) {
+export function CityCanvas() {
   const host = useRef<HTMLDivElement>(null);
   const engine = useRef<CityEngine | null>(null);
   const selected = useUI((s) => s.buildingId);
   const placement = useUI((s) => s.placement);
   const snapshotId = useUI((s) => s.snapshotId);
+  const sceneData = useLiveQuery(
+    () =>
+      db.transaction(
+        "r",
+        [db.cities, db.tracks, db.buildings, db.districts, db.snapshots],
+        async () => ({
+          data: {
+            city: await db.cities.get("city"),
+            tracks: await db.tracks.toArray(),
+            buildings: await db.buildings.toArray(),
+            districts: await db.districts.toArray(),
+          },
+          snapshot: snapshotId ? await db.snapshots.get(snapshotId) : undefined,
+        }),
+      ),
+    [snapshotId],
+  );
   const fit = useUI((s) => s.fit);
   const focus = useUI((s) => s.focus);
   useEffect(() => {
@@ -24,13 +42,11 @@ export function CityCanvas({ data }: { data: CityData }) {
       place: (b) => {
         void act(async () => {
           await service.placeBuilding(b);
-          useUI
-            .getState()
-            .set({
-              placement: null,
-              buildingId: b.id,
-              trackId: b.trackId ?? null,
-            });
+          useUI.getState().set({
+            placement: null,
+            buildingId: b.id,
+            trackId: b.trackId ?? null,
+          });
         });
       },
       cancel: () => useUI.getState().set({ placement: null }),
@@ -43,13 +59,13 @@ export function CityCanvas({ data }: { data: CityData }) {
     };
   }, []);
   useEffect(() => {
+    if (!sceneData) return;
     engine.current?.update({
-      data,
+      ...sceneData,
       selected,
       placement,
-      snapshot: data.snapshots.find((s) => s.id === snapshotId),
     });
-  }, [data, selected, placement, snapshotId]);
+  }, [sceneData, selected, placement]);
   useEffect(() => {
     if (fit) engine.current?.fitAll();
   }, [fit]);
@@ -67,7 +83,7 @@ export function CityCanvas({ data }: { data: CityData }) {
             ? "Исторический город · только просмотр"
             : "Место для вашего следующего открытия"}
         </span>
-        <h1>{data.city?.name}</h1>
+        <h1>{sceneData?.data.city?.name}</h1>
       </div>
       <div ref={host} className="city-canvas" />
       <div className="map-controls">

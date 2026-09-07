@@ -337,15 +337,18 @@ export class CityService {
     await this.db.notes.add(note);
     return note;
   }
-  async copyNote(draft: Note): Promise<Note> {
+  async copyNote(draft: Note, expectedEpoch?: string): Promise<Note> {
     return this.transaction(async () => {
       const copy = await this.createNote(draft.trackId);
-      return this.saveNote({
-        ...draft,
-        id: copy.id,
-        revision: 0,
-        title: `${draft.title.slice(0, 240)} (копия)`,
-      });
+      return this.saveNote(
+        {
+          ...draft,
+          id: copy.id,
+          revision: 0,
+          title: `${draft.title.slice(0, 240)} (копия)`,
+        },
+        expectedEpoch,
+      );
     });
   }
   async saveNote(note: Note, expectedEpoch?: string): Promise<Note> {
@@ -360,7 +363,7 @@ export class CityService {
         (await this.db.metadata.get("epoch"))?.value !== expectedEpoch
       )
         throw new Error(
-          "Город восстановлен в другой вкладке. Сохраните свой текст отдельной копией.",
+          "Город восстановлен в другой вкладке. Выгрузите локальный черновик с изображениями.",
         );
       const current = await this.db.notes.get(note.id);
       if (!current || current.revision !== note.revision)

@@ -5,8 +5,13 @@ import { validateImage } from "./attachments";
 import { dataSchema, validateRelations, type ArchiveData } from "./validation";
 import type { Attachment } from "../domain/model";
 
-export const ARCHIVE_LIMIT = 64 * 1024 * 1024;
-export const EXPANDED_LIMIT = 128 * 1024 * 1024;
+import {
+  ARCHIVE_LIMIT,
+  EXPANDED_LIMIT,
+  DATA_LIMIT,
+  archiveFileLimit,
+} from "./limits";
+export { ARCHIVE_LIMIT, EXPANDED_LIMIT } from "./limits";
 const manifestSchema = z
   .object({
     format: z.literal("progress-city"),
@@ -59,11 +64,16 @@ export async function exportCity(db: CityDB): Promise<Blob> {
   const files: Record<string, Uint8Array> = {
     "data.json": strToU8(JSON.stringify(parsed)),
   };
-  for (const a of attachments)
+  if (files["data.json"].length > DATA_LIMIT)
+    throw new Error(
+      "Данные города превышают 32 MiB UTF-8. Экспорт отменён без изменения базы: такой архив нельзя восстановить.",
+    );
+  for (const a of attachments) {
+    if (a.size !== a.blob.size)
+      throw new Error("Размер вложения не совпадает с данными.");
+    await validateImage(a.blob, a.mime);
     files[`attachments/${a.id}`] = new Uint8Array(await a.blob.arrayBuffer());
-  const size = Object.values(files).reduce((sum, v) => sum + v.length, 0);
-  if (size > EXPANDED_LIMIT - 1024 * 1024)
-    throw new Error("Город превышает лимит резервного архива 128 MiB.");
+  }
   const manifest = {
     format: "progress-city",
     version: 1,
@@ -77,6 +87,14 @@ export async function exportCity(db: CityDB): Promise<Blob> {
     ),
   };
   files["manifest.json"] = strToU8(JSON.stringify(manifest));
+  let total = 0;
+  for (const [path, bytes] of Object.entries(files)) {
+    total += bytes.length;
+    if (bytes.length > archiveFileLimit(path) || total > EXPANDED_LIMIT)
+      throw new Error(
+        "Город превышает лимит резервного архива. Экспорт отменён без изменения базы.",
+      );
+  }
   const zip = zipSync(files, { level: 0 });
   if (zip.length > ARCHIVE_LIMIT)
     throw new Error(
@@ -114,12 +132,7 @@ function unpack(bytes: Uint8Array) {
       if (error) throw error;
       size += chunk.length;
       total += chunk.length;
-      const limit =
-        file.name === "manifest.json"
-          ? 1024 * 1024
-          : file.name === "data.json"
-            ? 32 * 1024 * 1024
-            : 5 * 1024 * 1024;
+      const limit = archiveFileLimit(file.name);
       if (size > limit || total > EXPANDED_LIMIT) {
         file.terminate();
         throw new Error("Превышен лимит распаковки.");

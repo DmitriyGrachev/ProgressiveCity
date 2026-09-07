@@ -60,11 +60,28 @@ export class SaveSession {
   dispose() {
     clearTimeout(this.timer);
   }
-  acceptSavedCopy(note: Note) {
+  async settle() {
     clearTimeout(this.timer);
-    this.draft = structuredClone(note);
-    this.dirty = false;
+    await this.running?.catch(() => {});
+  }
+  acceptSavedCopy(note: Note, copiedDraft: Note) {
+    clearTimeout(this.timer);
+    const newer = this.draft !== copiedDraft;
+    this.draft = newer
+      ? {
+          ...this.draft,
+          id: note.id,
+          revision: note.revision,
+          title:
+            this.draft.title === copiedDraft.title
+              ? note.title
+              : this.draft.title,
+          createdAt: note.createdAt,
+          updatedAt: note.updatedAt,
+        }
+      : structuredClone(note);
+    this.dirty = newer;
     this.version++;
-    this.status("Сохранено");
+    this.status(newer ? "Есть изменения" : "Сохранено");
   }
 }

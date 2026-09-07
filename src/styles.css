@@ -616,6 +616,7 @@ small {
   padding: 5px 8px;
 }
 .tiptap {
+  white-space: pre-wrap;
   min-height: 190px;
   max-height: none;
   border: 1px solid #dce3d7;
@@ -917,4 +918,24 @@ small {
     transition: none !important;
     scroll-behavior: auto !important;
   }
+}
+.recovery-tray {
+  position: fixed;
+  bottom: 16px;
+  left: 16px;
+  z-index: 100;
+  width: min(540px, calc(100vw - 32px));
+  max-height: 45vh;
+  overflow: auto;
+  padding: 16px;
+  background: #fff9e9;
+  border: 1px solid #c19a53;
+  border-radius: 12px;
+  box-shadow: 0 6px 32px #24392b33;
+}
+.note-editor fieldset {
+  border: 0;
+  padding: 0;
+  margin: 0;
+  min-width: 0;
 }

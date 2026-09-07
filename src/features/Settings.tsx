@@ -3,6 +3,7 @@ import type { CityData } from "../domain/model";
 import { act, flushNotes, reportError } from "../app/ui";
 import { db } from "../storage/db";
 import { service } from "../storage/service";
+import { BackupUsage } from "./BackupUsage";
 import {
   exportCity,
   inspectArchive,
@@ -124,6 +125,7 @@ export function Settings({ data }: { data: CityData }) {
       </button>
       <hr />
       <h3>Резервная копия</h3>
+      <BackupUsage />
       <p>
         Город хранится в этом браузере. Регулярно экспортируйте архив: очистка
         данных браузера удаляет локальную базу.

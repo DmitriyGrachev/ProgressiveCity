@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, expect, it } from "vitest";
-import { strToU8, zipSync } from "fflate";
+import { strToU8, zipSync, unzipSync } from "fflate";
 import { CityDB } from "../../src/storage/db";
 import { CityService } from "../../src/storage/service";
 import {
@@ -30,6 +30,60 @@ beforeEach(async () => {
 afterEach(async () => {
   await db.delete();
 });
+it.each([-1, 0, 1])(
+  "uses identical data.json byte limits on both sides of the boundary (%i byte)",
+  async (offset) => {
+    const track = (await db.tracks.toArray())[0];
+    const base = await service.createNote(track.id);
+    const notes = Array.from({ length: 84 }, (_, i) => ({
+      ...base,
+      id: `boundary-${i}`,
+      text: "я",
+      doc: {
+        type: "doc",
+        content: [
+          { type: "paragraph", content: [{ type: "text", text: "я" }] },
+        ],
+      },
+    }));
+    await db.notes.clear();
+    const { storageEpoch, ...content } = await db.read();
+    void storageEpoch;
+    const payload = { ...content, notes, attachments: [] };
+    const target = 32 * 1024 * 1024 + offset;
+    let remaining = target - strToU8(JSON.stringify(payload)).length;
+    for (const note of notes) {
+      const count = Math.min(99_999, Math.floor(remaining / 4));
+      note.text += "я".repeat(count);
+      note.doc.content[0].content[0].text = note.text;
+      remaining -= count * 4;
+    }
+    notes[0].title += "x".repeat(remaining);
+    expect(strToU8(JSON.stringify(payload)).length).toBe(target);
+    await db.notes.bulkPut(notes);
+    if (offset > 0) {
+      await expect(exportCity(db)).rejects.toThrow(/32 MiB/);
+      const zip = zipSync({
+        "data.json": strToU8(JSON.stringify(payload)),
+        "manifest.json": strToU8("{}"),
+      });
+      await expect(inspectArchive(new Blob([zip]))).rejects.toThrow(
+        /лимит распаковки/,
+      );
+    } else {
+      const blob = await exportCity(db);
+      expect(
+        unzipSync(new Uint8Array(await blob.arrayBuffer()))["data.json"].length,
+      ).toBe(target);
+      const imported = await inspectArchive(blob);
+      await replaceCity(db, imported);
+      expect(await db.notes.toArray()).toEqual(
+        notes.sort((a, b) => a.id.localeCompare(b.id)),
+      );
+    }
+  },
+  20_000,
+);
 it("round trips the complete city including stable image bytes and note JSON", async () => {
   const a = await addAttachment(
     db,
@@ -63,6 +117,25 @@ it("round trips the complete city including stable image bytes and note JSON", a
     await target.delete();
   }
 });
+it("refuses an export whose UTF-8 data exceeds its own import limit without changing the city", async () => {
+  const track = (await db.tracks.toArray())[0];
+  const original = await service.createNote(track.id);
+  const text = "я".repeat(100_000);
+  await db.notes.bulkPut(
+    Array.from({ length: 100 }, (_, i) => ({
+      ...original,
+      id: `large-${i}`,
+      text,
+      doc: {
+        type: "doc",
+        content: [{ type: "paragraph", content: [{ type: "text", text }] }],
+      },
+    })),
+  );
+  const before = await db.read();
+  await expect(exportCity(db)).rejects.toThrow(/32 MiB/);
+  expect(await db.read()).toEqual(before);
+});
 it("rejects corrupt, unsupported and traversing archives before touching current data", async () => {
   const before = await db.read();
   const bad = [
@@ -92,6 +165,26 @@ it("rejects disguised or oversized image uploads", async () => {
     ),
   ).rejects.toThrow();
 });
+it("refuses an archive above the combined image limit without modifying stored attachments", async () => {
+  const bytes = new Uint8Array(5 * 1024 * 1024);
+  bytes.set(png);
+  await db.attachments.bulkAdd(
+    Array.from({ length: 13 }, (_, i) => ({
+      id: `large-image-${i}`,
+      name: `image-${i}.png`,
+      mime: "image/png",
+      size: bytes.length,
+      blob: new Blob([bytes], { type: "image/png" }),
+    })),
+  );
+  const before = await db.read();
+  await expect(exportCity(db)).rejects.toThrow(/64 MiB/);
+  expect(await db.read()).toEqual(before);
+  expect(await db.attachments.count()).toBe(13);
+  expect((await db.attachments.get("large-image-0"))!.blob.size).toBe(
+    bytes.length,
+  );
+}, 20_000);
 it("rejects malformed editor structure rather than silently restoring a blank note", () => {
   expect(
     validateDocument({
@@ -154,6 +247,30 @@ it("rejects a stale editor after import even when the archived revision matches"
     service.saveNote({ ...note, title: "Старый редактор" }, epoch),
   ).rejects.toThrow("другой вкладке");
   expect((await db.notes.get(note.id))?.title).toBe("Без названия");
+});
+it("prevents stale copy and pending image upload from writing into the replacement city", async () => {
+  const track = (await db.tracks.toArray())[0];
+  const note = await service.createNote(track.id);
+  const epoch = (await db.read()).storageEpoch;
+  await replaceCity(db, await inspectArchive(await exportCity(db)));
+  const before = await db.read();
+  await expect(
+    service.copyNote({ ...note, title: "Old draft" }, epoch),
+  ).rejects.toThrow(/другой вкладке/);
+  let retained: Blob | undefined;
+  await expect(
+    addAttachment(
+      db,
+      new File([png], "pending.png", { type: "image/png" }),
+      epoch,
+      (a) => {
+        retained = a.blob;
+      },
+    ),
+  ).rejects.toThrow(/другой вкладке/);
+  expect(await db.read()).toEqual(before);
+  expect(await db.attachments.count()).toBe(0);
+  expect(new Uint8Array(await retained!.arrayBuffer())).toEqual(png);
 });
 it("restores earned stages and events without replaying rewards", async () => {
   const track = (await db.tracks.toArray())[0];

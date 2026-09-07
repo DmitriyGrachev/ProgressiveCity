@@ -4,32 +4,22 @@ import {
   ReactNodeViewRenderer,
   type NodeViewProps,
 } from "@tiptap/react";
-import { useEffect, useState } from "react";
-import { useLiveQuery } from "dexie-react-hooks";
-import { db } from "../storage/db";
+import { createContext, useContext, useEffect, useState } from "react";
+import type { Attachment } from "../domain/model";
+export const AttachmentCache = createContext<Map<string, Attachment>>(
+  new Map(),
+);
 function ImageView({ node }: NodeViewProps) {
   const [src, setSrc] = useState("");
-  const epoch = useLiveQuery(() => db.metadata.get("epoch"));
+  const cache = useContext(AttachmentCache);
   useEffect(() => {
-    let alive = true;
-    let url = "";
-    setSrc("");
-    void db.attachments
-      .get(String(node.attrs.attachmentId))
-      .then((a) => {
-        if (alive && a) {
-          url = URL.createObjectURL(a.blob);
-          setSrc(url);
-        }
-      })
-      .catch(() => {
-        if (alive) setSrc("");
-      });
+    const a = cache.get(String(node.attrs.attachmentId));
+    const url = a ? URL.createObjectURL(a.blob) : "";
+    setSrc(url);
     return () => {
-      alive = false;
       if (url) URL.revokeObjectURL(url);
     };
-  }, [node.attrs.attachmentId, epoch?.value]);
+  }, [node.attrs.attachmentId, cache]);
   return (
     <NodeViewWrapper className="note-image">
       {src ? (
