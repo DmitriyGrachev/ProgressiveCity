@@ -501,6 +501,27 @@ small {
   color: #6d8167;
   text-align: center;
 }
+.layout-controls {
+  position: absolute;
+  bottom: 114px;
+  right: 23px;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  max-width: 260px;
+  padding: 8px;
+  border: 1px solid #c8d7bc;
+  border-radius: 8px;
+  background: #fafcf5f2;
+}
+.layout-controls button {
+  font-size: 11px;
+}
+.layout-status {
+  font-size: 10px;
+  color: #53674d;
+  overflow-wrap: anywhere;
+}
 .return-present {
   position: absolute;
   left: 50%;
@@ -834,6 +855,7 @@ small {
     grid-column: 2;
   }
   .panel-open .map-controls,
+  .panel-open .layout-controls,
   .panel-open .map-heading {
     visibility: hidden;
   }

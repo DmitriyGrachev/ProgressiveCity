@@ -9,14 +9,9 @@ import type {
 } from "../domain/model";
 import { id, isLearning, now } from "../domain/model";
 import { createResearch, spendOnObject } from "./learning";
-import {
-  canPlace,
-  checkRules,
-  localDate,
-  rewardFor,
-  validDate,
-} from "../domain/rules";
+import { checkRules, localDate, rewardFor, validDate } from "../domain/rules";
 import { CityDB, db } from "./db";
+import { LayoutService } from "./layout";
 import { dataSchema, validateDocument } from "./validation";
 import { noteSchema } from "../notes/schema";
 
@@ -37,7 +32,10 @@ type ActivityInput = Omit<
 > &
   Partial<Pick<Activity, "id" | "archived">>;
 export class CityService {
-  constructor(public db: CityDB) {}
+  readonly planning: LayoutService;
+  constructor(public db: CityDB) {
+    this.planning = new LayoutService(db);
+  }
   private transaction<T>(fn: () => Promise<T>) {
     return this.db.transaction("rw", this.db.tables, fn);
   }
@@ -393,85 +391,17 @@ export class CityService {
       .parse(input);
     await this.db.cities.update("city", input);
   }
-  private async layout(description: string) {
-    await this.db.events.add({
-      id: id(),
-      type: "layout",
-      amount: 0,
-      ruleVersion: 0,
-      description,
-      createdAt: now(),
-    });
+  placeBuilding(building: Building, epoch?: string) {
+    return this.planning.placeBuilding(building, epoch);
   }
-  async placeBuilding(building: Building) {
-    dataSchema.shape.buildings.element.parse(building);
-    const progress = ["workshop", "library", "pavilion"].includes(
-      building.kind,
-    );
-    const size = progress || ["park", "plaza"].includes(building.kind) ? 2 : 1;
-    if (
-      progress !== Boolean(building.trackId) ||
-      building.w !== size ||
-      building.h !== size
-    )
-      throw new Error("Неверный размер или направление объекта.");
-    return this.transaction(async () => {
-      if (!canPlace(building, await this.db.buildings.toArray(), building.id))
-        throw new Error("Место занято или находится за пределами карты.");
-      if (building.trackId) {
-        const t = await this.track(building.trackId);
-        const object = await this.objectFor(t, building.learningObjectId);
-        if (object && !object.built)
-          throw new Error("Сначала оплатите строительство объекта.");
-        building = {
-          ...building,
-          ...(object ? { learningObjectId: object.id } : {}),
-        };
-        if (t.archived)
-          throw new Error("Сначала верните направление из архива.");
-        const other = await this.db.buildings
-          .where(object ? "learningObjectId" : "trackId")
-          .equals(object?.id ?? t.id)
-          .first();
-        if (other && other.id !== building.id)
-          throw new Error("У этого объекта уже есть здание.");
-      }
-      if (!building.trackId && building.learningObjectId)
-        throw new Error("Декор не может принадлежать учебному объекту.");
-      const previous = await this.db.buildings.get(building.id);
-      if (
-        previous &&
-        (previous.trackId !== building.trackId ||
-          previous.learningObjectId !== building.learningObjectId)
-      )
-        throw new Error("Связь существующего здания закреплена.");
-      await this.db.buildings.put(building);
-      await this.layout(`Размещение: ${building.name}`);
-    });
+  removeBuilding(buildingId: string, epoch?: string) {
+    return this.planning.removeBuilding(buildingId, epoch);
   }
-  async removeBuilding(buildingId: string) {
-    return this.transaction(async () => {
-      const b = await this.db.buildings.get(buildingId);
-      if (!b) return;
-      await this.db.buildings.delete(buildingId);
-      await this.layout(`Снято с карты: ${b.name}`);
-    });
+  saveDistrict(district: District, epoch?: string) {
+    return this.planning.saveDistrict(district, epoch);
   }
-  async saveDistrict(district: District) {
-    dataSchema.shape.districts.element.parse(district);
-    if (!district.name.trim()) throw new Error("Введите имя района.");
-    return this.transaction(async () => {
-      if (!canPlace(district, await this.db.districts.toArray(), district.id))
-        throw new Error("Районы не должны пересекаться или выходить за карту.");
-      await this.db.districts.put(district);
-      await this.layout(`Район: ${district.name}`);
-    });
-  }
-  async removeDistrict(districtId: string) {
-    return this.transaction(async () => {
-      await this.db.districts.delete(districtId);
-      await this.layout("Удалена зона района; здания сохранены");
-    });
+  removeDistrict(districtId: string, epoch?: string) {
+    return this.planning.removeDistrict(districtId, epoch);
   }
   async snapshot(name: string) {
     return this.transaction(async () => {

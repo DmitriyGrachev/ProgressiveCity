@@ -15,6 +15,8 @@ interface UI {
   noteId: string | null;
   buildingId: string | null;
   placement: Building | null;
+  repeatPlacement: boolean;
+  placementEpoch: string | null;
   snapshotId: string | null;
   fit: number;
   focus: string | null;
@@ -30,6 +32,8 @@ export const useUI = create<UI>((set) => ({
   noteId: null,
   buildingId: null,
   placement: null,
+  repeatPlacement: false,
+  placementEpoch: null,
   snapshotId: null,
   fit: 0,
   focus: null,

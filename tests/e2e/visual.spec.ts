@@ -136,6 +136,8 @@ test("decor palette changes actual rendered pixels and persists on reload", asyn
     "data-building-count",
     "2",
   );
+  await page.keyboard.press("Escape");
+  await clickCell(page, 23, 22);
   await expect(
     page.getByRole("button", { name: "Сохранить оформление", exact: true }),
   ).toBeVisible();

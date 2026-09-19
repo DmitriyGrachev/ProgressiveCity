@@ -2,18 +2,27 @@ import { Application, Container, Graphics, Point, Text } from "pixi.js";
 import type { Building, CityData, Snapshot } from "../domain/model";
 import { canPlace, gridToIso, isoToGrid, MAP_SIZE } from "../domain/rules";
 import { buildingArt } from "./art";
+import { extendRoad, roadCellState, type Cell } from "../domain/roads";
 export interface SceneInput {
   data: Pick<
     CityData,
-    "city" | "tracks" | "learningObjects" | "buildings" | "districts"
+    | "city"
+    | "tracks"
+    | "learningObjects"
+    | "buildings"
+    | "districts"
+    | "storageEpoch"
   >;
   selected: string | null;
   placement: Building | null;
+  repeatPlacement: boolean;
+  busy: boolean;
   snapshot?: Snapshot;
 }
 export interface SceneCallbacks {
   select: (b: Building) => void;
-  place: (b: Building) => void;
+  place: (b: Building) => Promise<void>;
+  road: (b: Building, cells: Cell[]) => Promise<void>;
   cancel: () => void;
 }
 export class CityEngine {
@@ -33,11 +42,14 @@ export class CityEngine {
     cy: number;
     moved: boolean;
     button: number;
+    pointerId: number;
   };
   private initialized = false;
   private disposed = false;
   private animation?: number;
   private ghost?: Building;
+  private stroke?: { cells: Map<string, Cell>; last: Cell };
+  private saving = false;
   private host: HTMLDivElement;
   private callbacks: SceneCallbacks;
   constructor(host: HTMLDivElement, callbacks: SceneCallbacks) {
@@ -78,6 +90,8 @@ export class CityEngine {
     this.host.addEventListener("pointerdown", this.down);
     this.host.addEventListener("pointermove", this.move);
     this.host.addEventListener("pointerup", this.up);
+    this.host.addEventListener("pointercancel", this.pointerCancel);
+    this.host.addEventListener("lostpointercapture", this.pointerCancel);
     this.host.addEventListener("wheel", this.wheel, { passive: false });
     this.host.addEventListener("contextmenu", this.context);
     this.host.addEventListener("keydown", this.key);
@@ -120,6 +134,12 @@ export class CityEngine {
     const old = this.input;
     this.input = input;
     if (!this.initialized) return;
+    if (
+      old?.placement !== input.placement ||
+      old?.snapshot !== input.snapshot ||
+      old?.data.storageEpoch !== input.data.storageEpoch
+    )
+      this.cancelGesture();
     this.objects.removeChildren().forEach((c) => c.destroy({ children: true }));
     this.hits = [];
     const buildings = input.snapshot?.buildings ?? input.data.buildings;
@@ -169,7 +189,8 @@ export class CityEngine {
     if (!input.placement) {
       this.preview.clear();
       this.ghost = undefined;
-    } else if (this.ghost) this.drawPreview(this.ghost.x, this.ghost.y);
+    } else if (this.stroke) this.drawRoad([...this.stroke.cells.values()]);
+    else if (this.ghost) this.drawPreview(this.ghost.x, this.ghost.y);
     this.render();
     if (
       old &&
@@ -260,20 +281,87 @@ export class CityEngine {
     const r = this.host.getBoundingClientRect();
     return { x: e.clientX - r.left, y: e.clientY - r.top };
   }
+  private get roadTool() {
+    return this.input?.repeatPlacement && this.input.placement?.kind === "road";
+  }
+  private cell(e: PointerEvent): Cell {
+    const p = this.point(e);
+    const cell = isoToGrid(
+      (p.x - this.camera.x) / this.camera.zoom,
+      (p.y - this.camera.y) / this.camera.zoom,
+    );
+    // Keep one ring of invalid cells visible without allocating unbounded routes.
+    return {
+      x: Math.max(-1, Math.min(MAP_SIZE, cell.x)),
+      y: Math.max(-1, Math.min(MAP_SIZE, cell.y)),
+    };
+  }
+  cancelGesture() {
+    const pointerId = this.drag?.pointerId;
+    this.drag = undefined;
+    this.stroke = undefined;
+    this.ghost = undefined;
+    this.preview.clear();
+    if (pointerId !== undefined && this.host.hasPointerCapture(pointerId))
+      this.host.releasePointerCapture(pointerId);
+    if (this.initialized) {
+      delete this.app.canvas.dataset.roadCells;
+      delete this.app.canvas.dataset.placementValid;
+      this.render();
+    }
+  }
+  private pointerCancel = (e: PointerEvent) => {
+    if (this.drag?.pointerId === e.pointerId) this.cancelGesture();
+  };
   private down = (e: PointerEvent) => {
-    if (e.button > 2) return;
+    if (e.button > 2 || this.drag || this.saving || this.input?.busy) return;
     this.host.setPointerCapture(e.pointerId);
     this.app.canvas.focus();
-    const p = this.point(e);
     this.drag = {
-      ...p,
+      ...this.point(e),
       cx: this.camera.x,
       cy: this.camera.y,
       moved: false,
       button: e.button,
+      pointerId: e.pointerId,
     };
+    if (e.button === 0 && this.roadTool && !this.input?.snapshot) {
+      this.stroke = { cells: new Map(), last: this.cell(e) };
+      this.extendStroke(this.cell(e));
+    }
   };
+  private extendStroke(cell: Cell) {
+    if (!this.stroke) return;
+    for (const p of extendRoad([this.stroke.last], cell))
+      this.stroke.cells.set(`${p.x},${p.y}`, p);
+    this.stroke.last = cell;
+    this.drawRoad([...this.stroke.cells.values()]);
+  }
+  private drawRoad(cells: Cell[]) {
+    this.preview.clear();
+    let valid = true;
+    for (const cell of cells) {
+      const state = roadCellState(cell, this.input!.data.buildings);
+      if (state === "blocked") valid = false;
+      const p = gridToIso(cell.x, cell.y);
+      const color =
+        state === "blocked"
+          ? "#c34f46"
+          : state === "road"
+            ? "#487a99"
+            : "#317c60";
+      this.preview
+        .poly([p.x, p.y, p.x + 32, p.y + 16, p.x, p.y + 32, p.x - 32, p.y + 16])
+        .fill({ color, alpha: 0.55 })
+        .stroke({ color, width: 2 });
+    }
+    this.app.canvas.dataset.placementValid = String(valid);
+    this.app.canvas.dataset.roadCells = String(cells.length);
+    this.render();
+    return valid;
+  }
   private move = (e: PointerEvent) => {
+    if (this.drag && this.drag.pointerId !== e.pointerId) return;
     const p = this.point(e);
     if (this.drag && (!this.input?.placement || this.drag.button !== 0)) {
       if (Math.hypot(p.x - this.drag.x, p.y - this.drag.y) > 4)
@@ -284,36 +372,52 @@ export class CityEngine {
         this.render();
       }
     }
-    if (this.input?.placement) {
-      const cell = isoToGrid(
-        (p.x - this.camera.x) / this.camera.zoom,
-        (p.y - this.camera.y) / this.camera.zoom,
-      );
-      this.drawPreview(cell.x, cell.y);
+    if (this.input?.placement && !this.input.snapshot) {
+      if (this.stroke) this.extendStroke(this.cell(e));
+      else {
+        const cell = this.cell(e);
+        this.drawPreview(cell.x, cell.y);
+      }
     }
   };
+  private commit(action: () => Promise<void>) {
+    this.saving = true;
+    void action().finally(() => {
+      this.saving = false;
+    });
+  }
   private up = (e: PointerEvent) => {
-    if (!this.drag) return;
+    if (!this.drag || this.drag.pointerId !== e.pointerId) return;
     const drag = this.drag;
+    if (this.stroke) this.extendStroke(this.cell(e));
+    const cells = this.stroke ? [...this.stroke.cells.values()] : undefined;
     this.drag = undefined;
+    this.stroke = undefined;
     if (this.host.hasPointerCapture(e.pointerId))
       this.host.releasePointerCapture(e.pointerId);
-    if (drag.moved || e.button !== 0) return;
+    if (drag.moved || e.button !== 0 || this.saving || this.input?.busy) return;
+    if (this.input?.placement && !this.input.snapshot) {
+      if (cells) {
+        if (this.drawRoad(cells))
+          this.commit(() => this.callbacks.road(this.input!.placement!, cells));
+      } else {
+        const cell = this.cell(e);
+        this.drawPreview(cell.x, cell.y);
+        if (
+          this.ghost &&
+          canPlace(this.ghost, this.input.data.buildings, this.ghost.id)
+        ) {
+          const ghost = this.ghost;
+          this.commit(() => this.callbacks.place(ghost));
+        }
+      }
+      return;
+    }
     const p = this.point(e);
     const world = {
       x: (p.x - this.camera.x) / this.camera.zoom,
       y: (p.y - this.camera.y) / this.camera.zoom,
     };
-    if (this.input?.placement && !this.input.snapshot) {
-      const cell = isoToGrid(world.x, world.y);
-      this.drawPreview(cell.x, cell.y);
-      if (
-        this.ghost &&
-        canPlace(this.ghost, this.input.data.buildings, this.ghost.id)
-      )
-        this.callbacks.place(this.ghost);
-      return;
-    }
     const hit = [...this.hits]
       .reverse()
       .find((h) =>
@@ -327,6 +431,10 @@ export class CityEngine {
     const b = this.input?.placement;
     if (!b) return;
     this.ghost = { ...b, x, y };
+    if (this.roadTool) {
+      this.drawRoad([{ x, y }]);
+      return;
+    }
     const valid = canPlace(this.ghost, this.input!.data.buildings, b.id);
     const p = gridToIso(x, y);
     const s = b.w * 32;
@@ -350,12 +458,17 @@ export class CityEngine {
   }
   private wheel = (e: WheelEvent) => {
     e.preventDefault();
+    if (this.stroke) return;
     const p = this.point(e);
     this.zoom(Math.exp(-e.deltaY * 0.0015), p.x, p.y);
   };
   private context = (e: Event) => e.preventDefault();
   private key = (e: KeyboardEvent) => {
-    if (e.key === "Escape") this.callbacks.cancel();
+    if (e.key === "Escape") {
+      this.cancelGesture();
+      this.callbacks.cancel();
+    }
+    if (this.stroke) return;
     if (["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown"].includes(e.key)) {
       e.preventDefault();
       this.camera.x +=
@@ -374,6 +487,8 @@ export class CityEngine {
     this.host.removeEventListener("pointerdown", this.down);
     this.host.removeEventListener("pointermove", this.move);
     this.host.removeEventListener("pointerup", this.up);
+    this.host.removeEventListener("pointercancel", this.pointerCancel);
+    this.host.removeEventListener("lostpointercapture", this.pointerCancel);
     this.host.removeEventListener("wheel", this.wheel);
     this.host.removeEventListener("contextmenu", this.context);
     this.host.removeEventListener("keydown", this.key);

@@ -201,7 +201,11 @@ export function BuildPanel({
           className="primary wide"
           onClick={() =>
             void act(async () => {
-              useUI.getState().set({ placement: candidate() });
+              useUI.getState().set({
+                placement: candidate(),
+                repeatPlacement: !building && !progress,
+                placementEpoch: data.storageEpoch,
+              });
             })
           }
         >
@@ -240,15 +244,13 @@ export function BuildPanel({
             onClick={() =>
               void act(async () => {
                 const b = candidate();
-                await service.placeBuilding(b);
-                useUI
-                  .getState()
-                  .set({
-                    buildingId: b.id,
-                    objectId: b.learningObjectId ?? null,
-                    trackId: b.trackId ?? null,
-                    placement: null,
-                  });
+                await service.placeBuilding(b, data.storageEpoch);
+                useUI.getState().set({
+                  buildingId: b.id,
+                  objectId: b.learningObjectId ?? null,
+                  trackId: b.trackId ?? null,
+                  placement: null,
+                });
               })
             }
           >
@@ -261,11 +263,14 @@ export function BuildPanel({
               className="wide"
               onClick={() =>
                 void act(() =>
-                  service.placeBuilding({
-                    ...candidate(),
-                    x: building.x,
-                    y: building.y,
-                  }),
+                  service.placeBuilding(
+                    {
+                      ...candidate(),
+                      x: building.x,
+                      y: building.y,
+                    },
+                    data.storageEpoch,
+                  ),
                 )
               }
             >
@@ -275,7 +280,7 @@ export function BuildPanel({
               className="danger-text wide"
               onClick={() =>
                 void act(async () => {
-                  await service.removeBuilding(building.id);
+                  await service.removeBuilding(building.id, data.storageEpoch);
                   useUI.getState().set({ buildingId: null, placement: null });
                 })
               }
@@ -287,7 +292,13 @@ export function BuildPanel({
       </fieldset>
       {placement && (
         <div className="notice">
-          Выбран инструмент размещения. Нажмите на свободную клетку.
+          Выбран инструмент размещения.{" "}
+          {!building && placement.kind === "road"
+            ? "Проведите мышью маршрут и отпустите. Красные клетки блокируют всю дорогу; синие уже построены."
+            : "Нажмите на свободную клетку."}
+          {!building &&
+            !progress &&
+            " Можно размещать несколько раз. Escape завершает инструмент; правая кнопка мыши двигает карту."}
           <button onClick={() => useUI.getState().set({ placement: null })}>
             Отменить размещение
           </button>

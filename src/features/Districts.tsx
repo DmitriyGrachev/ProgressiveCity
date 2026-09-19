@@ -61,7 +61,7 @@ export function Districts({ data }: { data: CityData }) {
             className="primary"
             onClick={() =>
               void act(async () => {
-                await service.saveDistrict(draft);
+                await service.saveDistrict(draft, data.storageEpoch);
                 setDraft(freshDistrict());
               })
             }
@@ -94,7 +94,9 @@ export function Districts({ data }: { data: CityData }) {
           <button
             disabled={readonly}
             aria-label={`Удалить район ${d.name}`}
-            onClick={() => void act(() => service.removeDistrict(d.id))}
+            onClick={() =>
+              void act(() => service.removeDistrict(d.id, data.storageEpoch))
+            }
           >
             Удалить
           </button>
