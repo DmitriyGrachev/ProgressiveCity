@@ -1,4 +1,4 @@
-import { strFromU8, strToU8, Unzip, UnzipInflate, zipSync } from "fflate";
+import { strFromU8, Unzip, UnzipInflate, zipSync } from "fflate";
 import { z } from "zod";
 import Dexie from "dexie";
 import { CityDB } from "./db";
@@ -7,16 +7,13 @@ import { dataSchema, validateRelations, type ArchiveData } from "./validation";
 import {
   dataSchema as legacySchema,
   validateRelations as validateLegacyRelations,
+  type ArchiveData as LegacyArchiveData,
 } from "./legacy-validation";
 import { migrateV1 } from "./migrate";
 import type { Attachment } from "../domain/model";
 
-import {
-  ARCHIVE_LIMIT,
-  EXPANDED_LIMIT,
-  encodeArchiveData,
-  archiveFileLimit,
-} from "./limits";
+import { ARCHIVE_LIMIT, EXPANDED_LIMIT, archiveFileLimit } from "./limits";
+import { encodeManifest, prepareArchive } from "./archive-format";
 export { ARCHIVE_LIMIT, EXPANDED_LIMIT } from "./limits";
 const manifestSchema = z
   .object({
@@ -67,7 +64,7 @@ export async function exportCity(db: CityDB): Promise<Blob> {
   };
   const parsed = dataSchema.parse(payload);
   validateRelations(parsed);
-  return createArchive(encodeArchiveData(parsed), attachments, 2);
+  return createArchive(parsed, attachments, 2);
 }
 
 /** Read the preserved v1 without registering or running an upgrade. */
@@ -116,17 +113,22 @@ export async function exportLegacyCity(name: string): Promise<Blob> {
       },
     );
     validateLegacyRelations(data);
-    return await createArchive(encodeArchiveData(data), attachments, 1);
+    return await createArchive(data, attachments, 1);
   } finally {
     legacy.close();
   }
 }
 
 async function createArchive(
-  dataBytes: Uint8Array,
+  data: ArchiveData | LegacyArchiveData,
   attachments: Attachment[],
   version: 1 | 2,
 ): Promise<Blob> {
+  const { dataBytes, exportedAt, zipSize } = prepareArchive(
+    data,
+    attachments,
+    version,
+  );
   const files: Record<string, Uint8Array> = {
     "data.json": dataBytes,
   };
@@ -136,31 +138,22 @@ async function createArchive(
     await validateImage(a.blob, a.mime);
     files[`attachments/${a.id}`] = new Uint8Array(await a.blob.arrayBuffer());
   }
-  const manifest = {
-    format: "progress-city",
-    version,
-    exportedAt: new Date().toISOString(),
-    files: await Promise.all(
-      Object.entries(files).map(async ([path, bytes]) => ({
-        path,
-        size: bytes.length,
-        sha256: await hash(bytes),
-      })),
-    ),
-  };
-  files["manifest.json"] = strToU8(JSON.stringify(manifest));
-  let total = 0;
-  for (const [path, bytes] of Object.entries(files)) {
-    total += bytes.length;
-    if (bytes.length > archiveFileLimit(path) || total > EXPANDED_LIMIT)
-      throw new Error(
-        "Город превышает лимит резервного архива. Экспорт отменён без изменения базы.",
-      );
-  }
+  const manifestFiles = await Promise.all(
+    Object.entries(files).map(async ([path, bytes]) => ({
+      path,
+      size: bytes.length,
+      sha256: await hash(bytes),
+    })),
+  );
+  files["manifest.json"] = encodeManifest(manifestFiles, version, exportedAt);
   const zip = zipSync(files, { level: 0 });
   if (zip.length > ARCHIVE_LIMIT)
     throw new Error(
       "Архив превышает 64 MiB. Экспорт отменён без изменения данных.",
+    );
+  if (zip.length !== zipSize)
+    throw new Error(
+      "Размер ZIP не совпал с проверенным форматом. Экспорт отменён без изменения данных.",
     );
   return new Blob([zip], { type: "application/zip" });
 }
@@ -252,7 +245,6 @@ export async function inspectArchive(blob: Blob): Promise<ValidatedArchive> {
     }
     const data = dataSchema.parse(raw);
     validateRelations(data);
-    encodeArchiveData(data);
     if (data.attachments.length + 2 !== Object.keys(files).length)
       throw new Error("Лишние или недостающие вложения.");
     const attachments: Attachment[] = [];
@@ -264,6 +256,7 @@ export async function inspectArchive(blob: Blob): Promise<ValidatedArchive> {
       await validateImage(blob, a.mime);
       attachments.push({ ...a, blob });
     }
+    prepareArchive(data, attachments, 2);
     return { data, attachments };
   } catch (error) {
     throw new Error(
@@ -276,7 +269,7 @@ export async function replaceCity(db: CityDB, archive: ValidatedArchive) {
   // Revalidate immediately before entering the atomic replacement transaction.
   const data = dataSchema.parse(archive.data);
   validateRelations(data);
-  encodeArchiveData(data);
+  prepareArchive(data, archive.attachments, 2);
   if (archive.attachments.length !== data.attachments.length)
     throw new Error("Неполные вложения.");
   await db.transaction("rw", db.tables, async () => {

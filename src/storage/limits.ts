@@ -6,19 +6,26 @@ export const DATA_LIMIT = 32 * 1024 * 1024;
 export const MANIFEST_LIMIT = 1024 * 1024;
 export const IMAGE_LIMIT = 5 * 1024 * 1024;
 
-export class DataLimitError extends Error {
-  constructor() {
+export class ArchiveLimitError extends Error {
+  constructor(readonly reason: string) {
     super(
-      "Данные города превышают 32 MiB UTF-8. Операция отменена без изменения базы: такой архив нельзя восстановить.",
+      `${reason} Операция отменена без изменения базы: такой архив нельзя восстановить.`,
     );
+    this.name = "ArchiveLimitError";
+  }
+}
+
+export class DataLimitError extends ArchiveLimitError {
+  constructor() {
+    super("Данные города превышают 32 MiB UTF-8.");
     this.name = "DataLimitError";
   }
 }
 
 export class MigrationLimitError extends Error {
-  constructor(cause: DataLimitError) {
+  constructor(cause: ArchiveLimitError) {
     super(
-      "Обновление остановлено: после перехода на новую версию данные превысят 32 MiB UTF-8. Старый город сохранён без изменений. Скачайте его архив и откройте в прежней версии приложения, чтобы освободить место перед повторным обновлением.",
+      `Обновление остановлено: ${cause.reason} Старый город сохранён без изменений. Скачайте его архив и откройте в прежней версии приложения, чтобы освободить место перед повторным обновлением.`,
       { cause },
     );
     this.name = "MigrationLimitError";

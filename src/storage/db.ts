@@ -15,11 +15,8 @@ import type {
 import { migrateV1 } from "./migrate";
 import type { ArchiveData as LegacyData } from "./legacy-validation";
 import { dataSchema, validateRelations } from "./validation";
-import {
-  DataLimitError,
-  MigrationLimitError,
-  encodeArchiveData,
-} from "./limits";
+import { ArchiveLimitError, MigrationLimitError } from "./limits";
+import { prepareArchive } from "./archive-format";
 
 export class CityDB extends Dexie {
   cities!: EntityTable<City, "id">;
@@ -100,9 +97,9 @@ export class CityDB extends Dexie {
           });
           validateRelations(payload);
           try {
-            encodeArchiveData(payload);
+            prepareArchive(payload, attachments, 2);
           } catch (error) {
-            if (error instanceof DataLimitError)
+            if (error instanceof ArchiveLimitError)
               throw new MigrationLimitError(error);
             throw error;
           }
