@@ -1,5 +1,6 @@
 import { strFromU8, strToU8, Unzip, UnzipInflate, zipSync } from "fflate";
 import { z } from "zod";
+import Dexie from "dexie";
 import { CityDB } from "./db";
 import { validateImage } from "./attachments";
 import { dataSchema, validateRelations, type ArchiveData } from "./validation";
@@ -13,7 +14,7 @@ import type { Attachment } from "../domain/model";
 import {
   ARCHIVE_LIMIT,
   EXPANDED_LIMIT,
-  DATA_LIMIT,
+  encodeArchiveData,
   archiveFileLimit,
 } from "./limits";
 export { ARCHIVE_LIMIT, EXPANDED_LIMIT } from "./limits";
@@ -66,13 +67,69 @@ export async function exportCity(db: CityDB): Promise<Blob> {
   };
   const parsed = dataSchema.parse(payload);
   validateRelations(parsed);
-  const files: Record<string, Uint8Array> = {
-    "data.json": strToU8(JSON.stringify(parsed)),
-  };
-  if (files["data.json"].length > DATA_LIMIT)
-    throw new Error(
-      "Данные города превышают 32 MiB UTF-8. Экспорт отменён без изменения базы: такой архив нельзя восстановить.",
+  return createArchive(encodeArchiveData(parsed), attachments, 2);
+}
+
+/** Read the preserved v1 without registering or running an upgrade. */
+export async function exportLegacyCity(name: string): Promise<Blob> {
+  const legacy = new Dexie(name, { autoOpen: false });
+  try {
+    await legacy.open();
+    if (legacy.verno !== 1)
+      throw new Error(
+        "Старая версия города недоступна. Повторите загрузку приложения.",
+      );
+    const { data, attachments } = await legacy.transaction(
+      "r",
+      legacy.tables,
+      async () => {
+        const attachments = await legacy
+          .table<Attachment>("attachments")
+          .toArray();
+        const records = await Promise.all(
+          [
+            "tracks",
+            "buildings",
+            "districts",
+            "notes",
+            "activities",
+            "events",
+            "snapshots",
+          ].map(
+            async (key) =>
+              [key, await legacy.table<unknown>(key).toArray()] as const,
+          ),
+        );
+        return {
+          data: legacySchema.parse({
+            city: await legacy.table<unknown>("cities").get("city"),
+            ...Object.fromEntries(records),
+            attachments: attachments.map(({ id, name, mime, size }) => ({
+              id,
+              name,
+              mime,
+              size,
+            })),
+          }),
+          attachments,
+        };
+      },
     );
+    validateLegacyRelations(data);
+    return await createArchive(encodeArchiveData(data), attachments, 1);
+  } finally {
+    legacy.close();
+  }
+}
+
+async function createArchive(
+  dataBytes: Uint8Array,
+  attachments: Attachment[],
+  version: 1 | 2,
+): Promise<Blob> {
+  const files: Record<string, Uint8Array> = {
+    "data.json": dataBytes,
+  };
   for (const a of attachments) {
     if (a.size !== a.blob.size)
       throw new Error("Размер вложения не совпадает с данными.");
@@ -81,7 +138,7 @@ export async function exportCity(db: CityDB): Promise<Blob> {
   }
   const manifest = {
     format: "progress-city",
-    version: 2,
+    version,
     exportedAt: new Date().toISOString(),
     files: await Promise.all(
       Object.entries(files).map(async ([path, bytes]) => ({
@@ -195,6 +252,7 @@ export async function inspectArchive(blob: Blob): Promise<ValidatedArchive> {
     }
     const data = dataSchema.parse(raw);
     validateRelations(data);
+    encodeArchiveData(data);
     if (data.attachments.length + 2 !== Object.keys(files).length)
       throw new Error("Лишние или недостающие вложения.");
     const attachments: Attachment[] = [];
@@ -218,6 +276,7 @@ export async function replaceCity(db: CityDB, archive: ValidatedArchive) {
   // Revalidate immediately before entering the atomic replacement transaction.
   const data = dataSchema.parse(archive.data);
   validateRelations(data);
+  encodeArchiveData(data);
   if (archive.attachments.length !== data.attachments.length)
     throw new Error("Неполные вложения.");
   await db.transaction("rw", db.tables, async () => {

@@ -13,7 +13,7 @@ Communicate with the user in Russian. Use English identifiers in code. User-faci
 ## Stack and engineering boundaries
 
 - TypeScript strict, React, Vite, PixiJS with WebGL, Zustand, Tiptap open-source extensions, Dexie/IndexedDB, Vitest, Playwright, CSS Modules or plain CSS.
-- Inspect the existing workspace before scaffolding. Preserve user files and any existing lockfile. In a new project use npm and commit-ready `package-lock.json`; do not actually commit.
+- Inspect the existing workspace before scaffolding. Preserve user files and any existing lockfile. In a new project use npm and a commit-ready `package-lock.json`.
 - Check current official documentation and peer dependencies before choosing compatible versions. Use only installed APIs, not remembered APIs from other major versions. Record the selected Node version and compatibility decisions.
 - No Spring/Python backend, authentication, cloud service, API key, Docker, microservices, paid editor extension, analytics, multiplayer, or native wrapper in this MVP.
 - Domain rules and city placement logic are framework-independent TypeScript. Notes/progress are separate from rendering. One app and one local database, not a microservice architecture.
@@ -36,7 +36,7 @@ Communicate with the user in Russian. Use English identifiers in code. User-faci
 
 ## Workflow and safety
 
-Work in the user's current project directory. Do not automatically create a worktree: a new repository may have no initial commit. Do not run git add, commit, push, create a pull request, deploy, or publish. The user will review and commit themselves.
+Work in the user's current project directory. Do not automatically create a worktree: a new repository may have no initial commit. The user has explicitly authorized committing and pushing completed, verified changes to `DmitriyGrachev/ProgressiveCity` on `main` (standing instruction, 19 September 2026). After successful verification, commit the intended changes, push without force, and verify that local and remote heads match. Do not ask again for routine commit/push approval. If checks fail or publication is blocked, report the actual status. Creating a pull request, deploying, or other publication still requires an explicit request.
 
 Do not delete or overwrite user changes, run reset --hard, change global settings, install global tools, or disable sandboxing. Do not edit `.codex/config.toml` to grant yourself more permissions. Ask for the normal approval for necessary package/browser downloads. Do not copy auth tokens, personal files, or browser data into this project.
 

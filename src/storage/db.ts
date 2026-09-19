@@ -14,6 +14,12 @@ import type {
 } from "../domain/model";
 import { migrateV1 } from "./migrate";
 import type { ArchiveData as LegacyData } from "./legacy-validation";
+import { dataSchema, validateRelations } from "./validation";
+import {
+  DataLimitError,
+  MigrationLimitError,
+  encodeArchiveData,
+} from "./limits";
 
 export class CityDB extends Dexie {
   cities!: EntityTable<City, "id">;
@@ -77,6 +83,30 @@ export class CityDB extends Dexie {
             .toArray(),
         };
         const data = migrateV1(legacy);
+        if (data.city) {
+          // Admission runs inside the versionchange transaction, before any writes.
+          // Blob bytes are outside data.json; attachment metadata is part of it.
+          const attachments = await transaction
+            .table<Attachment>("attachments")
+            .toArray();
+          const payload = dataSchema.parse({
+            ...data,
+            attachments: attachments.map(({ id, name, mime, size }) => ({
+              id,
+              name,
+              mime,
+              size,
+            })),
+          });
+          validateRelations(payload);
+          try {
+            encodeArchiveData(payload);
+          } catch (error) {
+            if (error instanceof DataLimitError)
+              throw new MigrationLimitError(error);
+            throw error;
+          }
+        }
         if (data.city) await transaction.table("cities").put(data.city);
         for (const key of [
           "tracks",
