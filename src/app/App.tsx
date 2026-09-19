@@ -122,6 +122,7 @@ export function App() {
   const panel = useUI((s) => s.panel);
   const trackId = useUI((s) => s.trackId);
   const buildingId = useUI((s) => s.buildingId);
+  const objectId = useUI((s) => s.objectId);
   const error = useUI((s) => s.error);
   const [archived, setArchived] = useState(false);
   const errorBanner = error && (
@@ -199,6 +200,8 @@ export function App() {
                 void navigate({
                   panel: "track",
                   trackId: null,
+                  objectId: null,
+                  resultRequest: null,
                   noteId: null,
                   buildingId: null,
                 })
@@ -220,6 +223,8 @@ export function App() {
                     void navigate({
                       panel: "track",
                       trackId: t.id,
+                      objectId: null,
+                      resultRequest: null,
                       noteId: null,
                       buildingId:
                         data.buildings.find((b) => b.trackId === t.id)?.id ??
@@ -265,7 +270,11 @@ export function App() {
             </button>
             {panel === "track" &&
               (track ? (
-                <TrackPanel key={track.id} data={data} track={track} />
+                <TrackPanel
+                  key={`${track.id}-${objectId ?? "initial"}`}
+                  data={data}
+                  track={track}
+                />
               ) : (
                 <>
                   <h2>Новое направление</h2>
@@ -275,7 +284,7 @@ export function App() {
             {panel === "library" && <Library data={data} />}
             {panel === "build" && (
               <BuildPanel
-                key={building?.id ?? `new-${trackId}`}
+                key={building?.id ?? `new-${trackId}-${objectId}`}
                 data={data}
                 building={building}
               />

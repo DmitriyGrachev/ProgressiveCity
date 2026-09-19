@@ -3,10 +3,12 @@ import type {
   Building,
   City,
   District,
+  LearningObject,
   Note,
   Track,
 } from "../domain/model";
-import { id, now } from "../domain/model";
+import { id, isLearning, now } from "../domain/model";
+import { createResearch, spendOnObject } from "./learning";
 import {
   canPlace,
   checkRules,
@@ -49,6 +51,25 @@ export class CityService {
     if (!t) throw new Error("Направление не найдено.");
     return t;
   }
+  private async objectFor(track: Track, objectId?: string) {
+    if (!isLearning(track)) {
+      if (objectId) throw new Error("У привычки нет учебных объектов.");
+      return undefined;
+    }
+    const object = await this.db.learningObjects.get(objectId ?? track.id);
+    if (!object || object.trackId !== track.id)
+      throw new Error("Учебный объект не принадлежит направлению.");
+    return object;
+  }
+  private async checkEpoch(expectedEpoch?: string) {
+    if (
+      expectedEpoch !== undefined &&
+      (await this.db.metadata.get("epoch"))?.value !== expectedEpoch
+    )
+      throw new Error(
+        "Город восстановлен в другой вкладке. Обновите страницу перед изменением прогресса.",
+      );
+  }
   async initialize(name: string, trackName: string) {
     if (!name.trim() || !trackName.trim())
       throw new Error("Введите название города и направления.");
@@ -60,7 +81,12 @@ export class CityService {
         name: name.trim().slice(0, 120),
         timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
         reducedMotion: false,
-        rules: { version: 1, rewards: [1, 2, 3], costs: [3, 6] },
+        rules: {
+          version: 1,
+          rewards: [1, 2, 3],
+          costs: [3, 6],
+          constructionCost: 3,
+        },
         createdAt: now(),
       });
       const track = await this.createTrack({
@@ -75,6 +101,7 @@ export class CityService {
       await this.db.buildings.add({
         id: id(),
         trackId: track.id,
+        learningObjectId: track.id,
         name: track.name,
         kind: "workshop",
         color: "#bc7153",
@@ -98,8 +125,105 @@ export class CityService {
       createdAt: now(),
     };
     dataSchema.shape.tracks.element.parse(track);
-    await this.db.tracks.add(track);
-    return track;
+    return this.transaction(async () => {
+      await this.db.tracks.add(track);
+      if (isLearning(track))
+        await this.db.learningObjects.add({
+          id: track.id,
+          trackId: track.id,
+          name: track.name,
+          nextQuestion: "",
+          stage: 1,
+          built: true,
+          initial: true,
+          createdAt: track.createdAt,
+        });
+      return track;
+    });
+  }
+  async createLearningObject(
+    trackId: string,
+    name: string,
+    expectedEpoch?: string,
+  ) {
+    return this.transaction(async () => {
+      await this.checkEpoch(expectedEpoch);
+      return createResearch(this.db, trackId, name);
+    });
+  }
+  async updateLearningObject(
+    input: LearningObject,
+    expectedEpoch?: string,
+    expectedFields?: Pick<LearningObject, "name" | "nextQuestion">,
+  ) {
+    return this.transaction(async () => {
+      await this.checkEpoch(expectedEpoch);
+      const old = await this.db.learningObjects.get(input.id);
+      if (!old) throw new Error("Учебный объект не найден.");
+      if (
+        expectedFields &&
+        (old.name !== expectedFields.name ||
+          old.nextQuestion !== expectedFields.nextQuestion)
+      )
+        throw new Error(
+          "Исследование изменено в другой вкладке. Скопируйте свой вопрос перед загрузкой актуальных полей.",
+        );
+      const updated = {
+        ...old,
+        name: input.name.trim(),
+        nextQuestion: input.nextQuestion,
+      };
+      dataSchema.shape.learningObjects.element.parse(updated);
+      await this.db.learningObjects.put(updated);
+      return updated;
+    });
+  }
+  async construct(
+    objectId: string,
+    commandId: string,
+    sourceActivityId?: string,
+    expectedEpoch?: string,
+  ) {
+    return this.spendObject(
+      objectId,
+      "construction",
+      commandId,
+      sourceActivityId,
+      expectedEpoch,
+    );
+  }
+  async upgradeObject(
+    objectId: string,
+    commandId: string,
+    sourceActivityId?: string,
+    expectedEpoch?: string,
+  ) {
+    return this.spendObject(
+      objectId,
+      "upgrade",
+      commandId,
+      sourceActivityId,
+      expectedEpoch,
+    );
+  }
+  private async spendObject(
+    objectId: string,
+    kind: "upgrade" | "construction",
+    commandId: string,
+    sourceActivityId?: string,
+    expectedEpoch?: string,
+  ) {
+    return this.transaction(async () => {
+      await this.checkEpoch(expectedEpoch);
+      const description = await spendOnObject(
+        this.db,
+        objectId,
+        kind,
+        commandId,
+        sourceActivityId,
+      );
+      if (description) await this.snapshot(description);
+    });
   }
   async updateTrack(input: Track) {
     if (!input.name.trim()) throw new Error("Название не может быть пустым.");
@@ -118,7 +242,10 @@ export class CityService {
       });
     });
   }
-  async saveActivity(input: ActivityInput): Promise<Activity> {
+  async saveActivity(
+    input: ActivityInput,
+    expectedEpoch?: string,
+  ): Promise<Activity> {
     if (!input.title.trim() || !validDate(input.date))
       throw new Error("Введите название и корректную дату.");
     if (
@@ -132,17 +259,33 @@ export class CityService {
       throw new Error("Некорректное значение.");
     return this.transaction(async () => {
       const city = await this.city();
-      await this.track(input.trackId);
+      await this.checkEpoch(expectedEpoch);
+      const track = await this.track(input.trackId);
+      const object = await this.objectFor(track, input.learningObjectId);
       const old = input.id ? await this.db.activities.get(input.id) : undefined;
-      if (old && (input.trackId !== old.trackId || input.date !== old.date))
+      if (
+        old &&
+        (input.trackId !== old.trackId ||
+          input.date !== old.date ||
+          object?.id !== old.learningObjectId)
+      )
         throw new Error(
-          "Дата и направление сохранённой записи закреплены. Создайте другую запись.",
+          "Дата, направление и учебный объект сохранённой записи закреплены. Создайте другую запись.",
         );
-      for (const noteId of input.noteIds)
-        if ((await this.db.notes.get(noteId))?.trackId !== input.trackId)
-          throw new Error("Связанная заметка принадлежит другому направлению.");
+      for (const noteId of input.noteIds) {
+        const note = await this.db.notes.get(noteId);
+        if (
+          !note ||
+          note.trackId !== input.trackId ||
+          note.learningObjectId !== object?.id
+        )
+          throw new Error(
+            "Связанная заметка принадлежит другому направлению или учебному объекту.",
+          );
+      }
       const activity: Activity = {
         ...input,
+        ...(object ? { learningObjectId: object.id } : {}),
         id: old?.id ?? id(),
         timezone: old?.timezone ?? city.timezone,
         confirmed: old?.confirmed ?? false,
@@ -154,8 +297,9 @@ export class CityService {
       return activity;
     });
   }
-  async confirmActivity(activityId: string) {
+  async confirmActivity(activityId: string, expectedEpoch?: string) {
     return this.transaction(async () => {
+      await this.checkEpoch(expectedEpoch);
       const a = await this.db.activities.get(activityId);
       if (!a) throw new Error("Запись не найдена.");
       if (a.confirmed) return;
@@ -179,6 +323,7 @@ export class CityService {
         id: eventId,
         activityId: a.id,
         trackId: track.id,
+        ...(a.learningObjectId ? { learningObjectId: a.learningObjectId } : {}),
         type: "activity",
         amount,
         ruleVersion: city.rules.version,
@@ -189,9 +334,10 @@ export class CityService {
   }
   async upgrade(trackId: string, commandId: string) {
     return this.transaction(async () => {
+      const track = await this.track(trackId);
+      if (isLearning(track)) return this.upgradeObject(track.id, commandId);
       const eventId = `upgrade:${commandId}`;
       if (await this.db.events.get(eventId)) return;
-      const track = await this.track(trackId);
       const city = await this.city();
       if (track.stage >= 3) throw new Error("Достигнут последний этап.");
       const cost = city.rules.costs[track.stage - 1];
@@ -216,12 +362,20 @@ export class CityService {
   async updateRules(
     rewards: [number, number, number],
     costs: [number, number],
+    constructionCost?: number,
   ) {
     checkRules(rewards, costs);
     return this.transaction(async () => {
       const city = await this.city();
+      const rules = {
+        version: city.rules.version + 1,
+        rewards,
+        costs,
+        constructionCost: constructionCost ?? city.rules.constructionCost,
+      };
+      dataSchema.shape.city.shape.rules.parse(rules);
       await this.db.cities.update("city", {
-        rules: { version: city.rules.version + 1, rewards, costs },
+        rules,
       });
     });
   }
@@ -266,15 +420,31 @@ export class CityService {
         throw new Error("Место занято или находится за пределами карты.");
       if (building.trackId) {
         const t = await this.track(building.trackId);
+        const object = await this.objectFor(t, building.learningObjectId);
+        if (object && !object.built)
+          throw new Error("Сначала оплатите строительство объекта.");
+        building = {
+          ...building,
+          ...(object ? { learningObjectId: object.id } : {}),
+        };
         if (t.archived)
           throw new Error("Сначала верните направление из архива.");
         const other = await this.db.buildings
-          .where("trackId")
-          .equals(building.trackId)
+          .where(object ? "learningObjectId" : "trackId")
+          .equals(object?.id ?? t.id)
           .first();
         if (other && other.id !== building.id)
-          throw new Error("У направления уже есть здание.");
+          throw new Error("У этого объекта уже есть здание.");
       }
+      if (!building.trackId && building.learningObjectId)
+        throw new Error("Декор не может принадлежать учебному объекту.");
+      const previous = await this.db.buildings.get(building.id);
+      if (
+        previous &&
+        (previous.trackId !== building.trackId ||
+          previous.learningObjectId !== building.learningObjectId)
+      )
+        throw new Error("Связь существующего здания закреплена.");
       await this.db.buildings.put(building);
       await this.layout(`Размещение: ${building.name}`);
     });
@@ -306,9 +476,13 @@ export class CityService {
   async snapshot(name: string) {
     return this.transaction(async () => {
       const tracks = await this.db.tracks.toArray();
+      const objects = await this.db.learningObjects.toArray();
       const buildings = (await this.db.buildings.toArray()).map((b) => ({
         ...b,
-        stage: tracks.find((t) => t.id === b.trackId)?.stage ?? (1 as const),
+        stage:
+          (b.learningObjectId
+            ? objects.find((o) => o.id === b.learningObjectId)?.stage
+            : tracks.find((t) => t.id === b.trackId)?.stage) ?? (1 as const),
       }));
       const snapshot = {
         id: id(),
@@ -321,25 +495,31 @@ export class CityService {
       return snapshot;
     });
   }
-  async createNote(trackId: string): Promise<Note> {
-    await this.track(trackId);
-    const note: Note = {
-      id: id(),
-      trackId,
-      title: "Без названия",
-      doc: { type: "doc", content: [{ type: "paragraph" }] },
-      text: "",
-      tags: [],
-      createdAt: now(),
-      updatedAt: now(),
-      revision: 0,
-    };
-    await this.db.notes.add(note);
-    return note;
+  async createNote(trackId: string, learningObjectId?: string): Promise<Note> {
+    return this.transaction(async () => {
+      const object = await this.objectFor(
+        await this.track(trackId),
+        learningObjectId,
+      );
+      const note: Note = {
+        id: id(),
+        trackId,
+        ...(object ? { learningObjectId: object.id } : {}),
+        title: "Без названия",
+        doc: { type: "doc", content: [{ type: "paragraph" }] },
+        text: "",
+        tags: [],
+        createdAt: now(),
+        updatedAt: now(),
+        revision: 0,
+      };
+      await this.db.notes.add(note);
+      return note;
+    });
   }
   async copyNote(draft: Note, expectedEpoch?: string): Promise<Note> {
     return this.transaction(async () => {
-      const copy = await this.createNote(draft.trackId);
+      const copy = await this.createNote(draft.trackId, draft.learningObjectId);
       return this.saveNote(
         {
           ...draft,
@@ -383,6 +563,7 @@ export class CityService {
       const updated = {
         ...note,
         trackId: current.trackId,
+        learningObjectId: current.learningObjectId,
         createdAt: current.createdAt,
         text: document.textBetween(0, document.content.size, "\n\n", "\n"),
         revision: note.revision + 1,

@@ -14,11 +14,19 @@ export function CityCanvas() {
     () =>
       db.transaction(
         "r",
-        [db.cities, db.tracks, db.buildings, db.districts, db.snapshots],
+        [
+          db.cities,
+          db.tracks,
+          db.learningObjects,
+          db.buildings,
+          db.districts,
+          db.snapshots,
+        ],
         async () => ({
           data: {
             city: await db.cities.get("city"),
             tracks: await db.tracks.toArray(),
+            learningObjects: await db.learningObjects.toArray(),
             buildings: await db.buildings.toArray(),
             districts: await db.districts.toArray(),
           },
@@ -35,6 +43,8 @@ export function CityCanvas() {
         void navigate({
           buildingId: b.id,
           trackId: b.trackId ?? null,
+          objectId: b.learningObjectId ?? null,
+          resultRequest: null,
           panel: b.trackId ? "track" : "build",
           noteId: null,
         });
@@ -46,6 +56,8 @@ export function CityCanvas() {
             placement: null,
             buildingId: b.id,
             trackId: b.trackId ?? null,
+            objectId: b.learningObjectId ?? null,
+            resultRequest: null,
           });
         });
       },

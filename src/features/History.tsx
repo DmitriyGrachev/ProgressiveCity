@@ -88,7 +88,7 @@ export function History({ data }: { data: CityData }) {
                 <small>
                   {e.type === "layout"
                     ? "Оформление · без прогресса"
-                    : `${e.type === "upgrade" ? "Улучшение" : "Результат"} · правило v${e.ruleVersion}`}{" "}
+                    : `${e.type === "upgrade" ? "Улучшение" : e.type === "construction" ? "Строительство" : "Результат"} · правило v${e.ruleVersion}`}{" "}
                   · {new Date(e.createdAt).toLocaleString("ru")}
                 </small>
               </div>

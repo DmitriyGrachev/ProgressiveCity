@@ -3,6 +3,11 @@ import { z } from "zod";
 import { CityDB } from "./db";
 import { validateImage } from "./attachments";
 import { dataSchema, validateRelations, type ArchiveData } from "./validation";
+import {
+  dataSchema as legacySchema,
+  validateRelations as validateLegacyRelations,
+} from "./legacy-validation";
+import { migrateV1 } from "./migrate";
 import type { Attachment } from "../domain/model";
 
 import {
@@ -15,7 +20,7 @@ export { ARCHIVE_LIMIT, EXPANDED_LIMIT } from "./limits";
 const manifestSchema = z
   .object({
     format: z.literal("progress-city"),
-    version: z.literal(1),
+    version: z.union([z.literal(1), z.literal(2)]),
     exportedAt: z.string().datetime(),
     files: z
       .array(
@@ -76,7 +81,7 @@ export async function exportCity(db: CityDB): Promise<Blob> {
   }
   const manifest = {
     format: "progress-city",
-    version: 1,
+    version: 2,
     exportedAt: new Date().toISOString(),
     files: await Promise.all(
       Object.entries(files).map(async ([path, bytes]) => ({
@@ -182,7 +187,13 @@ export async function inspectArchive(blob: Blob): Promise<ValidatedArchive> {
         (await hash(files[f.path])) !== f.sha256
       )
         throw new Error("Контрольная сумма или размер не совпадают.");
-    const data = dataSchema.parse(JSON.parse(strFromU8(files["data.json"])));
+    let raw: unknown = JSON.parse(strFromU8(files["data.json"]));
+    if (manifest.version === 1) {
+      const legacy = legacySchema.parse(raw);
+      validateLegacyRelations(legacy);
+      raw = migrateV1(legacy);
+    }
+    const data = dataSchema.parse(raw);
     validateRelations(data);
     if (data.attachments.length + 2 !== Object.keys(files).length)
       throw new Error("Лишние или недостающие вложения.");
@@ -214,6 +225,7 @@ export async function replaceCity(db: CityDB, archive: ValidatedArchive) {
     await db.metadata.add({ id: "epoch", value: crypto.randomUUID() });
     await db.cities.add(data.city);
     await db.tracks.bulkAdd(data.tracks);
+    await db.learningObjects.bulkAdd(data.learningObjects);
     await db.buildings.bulkAdd(data.buildings);
     await db.districts.bulkAdd(data.districts);
     await db.notes.bulkAdd(data.notes);

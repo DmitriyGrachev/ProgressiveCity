@@ -38,7 +38,7 @@ describe("transactional progression", () => {
       service.upgrade(a.trackId, "same-command"),
       second.upgrade(a.trackId, "same-command"),
     ]);
-    expect((await db.tracks.get(a.trackId))?.stage).toBe(2);
+    expect((await db.learningObjects.get(a.trackId))?.stage).toBe(2);
     expect((await db.tracks.get(a.trackId))?.balance).toBe(0);
     await expect(
       service.upgrade(a.trackId, "different-command"),

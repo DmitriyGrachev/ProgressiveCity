@@ -17,7 +17,12 @@ export function Library({ data }: { data: CityData }) {
         .includes(query.toLocaleLowerCase()),
   );
   const building =
-    note && data.buildings.find((b) => b.trackId === note.trackId);
+    note &&
+    data.buildings.find(
+      (b) =>
+        b.trackId === note.trackId &&
+        b.learningObjectId === note.learningObjectId,
+    );
   return (
     <>
       <span className="eyebrow">Вернуться к изученному</span>
@@ -69,7 +74,11 @@ export function Library({ data }: { data: CityData }) {
               {n.title}
               <small>
                 {data.tracks.find((t) => t.id === n.trackId)?.name} ·{" "}
-                {n.tags.join(", ")}
+                {
+                  data.learningObjects.find((o) => o.id === n.learningObjectId)
+                    ?.name
+                }{" "}
+                · {n.tags.join(", ")}
               </small>
             </span>
           </button>

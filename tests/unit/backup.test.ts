@@ -293,5 +293,6 @@ it("restores earned stages and events without replaying rewards", async () => {
   await service.upgrade(track.id, "upgrade-once");
   expect(await db.events.toArray()).toEqual(events);
   expect(await db.snapshots.toArray()).toEqual(snapshots);
-  expect(await db.tracks.get(track.id)).toMatchObject({ balance: 0, stage: 2 });
+  expect(await db.tracks.get(track.id)).toMatchObject({ balance: 0, stage: 1 });
+  expect(await db.learningObjects.get(track.id)).toMatchObject({ stage: 2 });
 });

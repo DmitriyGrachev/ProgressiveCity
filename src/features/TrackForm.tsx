@@ -39,7 +39,16 @@ export function TrackForm({
           if (track) await service.updateTrack({ ...track, ...fields });
           else {
             const created = await service.createTrack(fields);
-            useUI.getState().set({ trackId: created.id, panel: "track" });
+            useUI
+              .getState()
+              .set({
+                trackId: created.id,
+                panel: "track",
+                objectId: null,
+                resultRequest: null,
+                noteId: null,
+                buildingId: null,
+              });
           }
           onDone?.();
         }).finally(() => setBusy(false));

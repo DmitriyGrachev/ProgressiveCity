@@ -5,16 +5,27 @@ import { service } from "../storage/service";
 import { NoteEditor } from "../notes/NoteEditor";
 import { Activities } from "./ActivityForm";
 import { TrackForm } from "./TrackForm";
+import { DevelopmentChoice, ResearchDetails, ResearchPicker } from "./Research";
 export function TrackPanel({ data, track }: { data: CityData; track: Track }) {
   const [tab, setTab] = useState<"notes" | "results" | "edit">("notes");
   const [busy, setBusy] = useState(false);
   const [upgradeId, setUpgradeId] = useState(id);
   const noteId = useUI((s) => s.noteId);
+  const objectId = useUI((s) => s.objectId);
+  const resultRequest = useUI((s) => s.resultRequest);
+  const resultNoteId = resultRequest?.noteId;
+  const [allMaterials, setAllMaterials] = useState(false);
+  const object = data.learningObjects.find(
+    (o) => o.trackId === track.id && o.id === (objectId ?? track.id),
+  );
+  const stage = object?.stage ?? track.stage;
   const readonly = useUI((s) => Boolean(s.snapshotId));
-  const building = data.buildings.find((b) => b.trackId === track.id);
+  const building = data.buildings.find(
+    (b) => b.trackId === track.id && b.learningObjectId === object?.id,
+  );
   const note = data.notes.find((n) => n.id === noteId);
-  const activeTab = readonly ? "notes" : tab;
-  const cost = data.city!.rules.costs[track.stage - 1];
+  const activeTab = readonly ? "notes" : resultNoteId ? "results" : tab;
+  const cost = data.city!.rules.costs[stage - 1];
   return (
     <>
       <span className="eyebrow">
@@ -22,6 +33,14 @@ export function TrackPanel({ data, track }: { data: CityData; track: Track }) {
         {track.archived ? " · архив" : ""}
       </span>
       <h2>{track.name}</h2>
+      {object && (
+        <ResearchPicker
+          data={data}
+          track={track}
+          object={object}
+          readonly={readonly}
+        />
+      )}
       {readonly && (
         <p className="notice">
           Показаны текущие материалы. Снимок хранит прошлую планировку и этапы,
@@ -30,7 +49,7 @@ export function TrackPanel({ data, track }: { data: CityData; track: Track }) {
       )}
       <div className="progress-strip">
         <span data-testid="stage">
-          Этап <b>{track.stage}</b> / 3
+          Этап <b>{stage}</b> / 3
         </span>
         <span data-testid="balance">
           <b>{track.balance}</b> очков развития
@@ -39,14 +58,22 @@ export function TrackPanel({ data, track }: { data: CityData; track: Track }) {
           disabled={
             readonly ||
             busy ||
-            track.stage === 3 ||
+            stage === 3 ||
+            (object && !object.built) ||
             track.balance < cost ||
             track.archived
           }
           onClick={() => {
             setBusy(true);
             void act(async () => {
-              await service.upgrade(track.id, upgradeId);
+              if (object)
+                await service.upgradeObject(
+                  object.id,
+                  upgradeId,
+                  undefined,
+                  data.storageEpoch,
+                );
+              else await service.upgrade(track.id, upgradeId);
               setUpgradeId(id());
             }).finally(() => setBusy(false));
           }}
@@ -55,9 +82,11 @@ export function TrackPanel({ data, track }: { data: CityData; track: Track }) {
         </button>
       </div>
       <p className="hint">
-        {track.stage === 3
-          ? "Все три этапа открыты. Материалы и новые результаты остаются с вами."
-          : `Следующий этап стоит ${cost} очков. Развитие выбираете вы.`}
+        {object && !object.built
+          ? `Исследование начато. Постройка стоит ${data.city!.rules.constructionCost} очков; материалы доступны уже сейчас.`
+          : stage === 3
+            ? "Все три этапа открыты. Материалы и новые результаты остаются с вами."
+            : `Следующий этап стоит ${cost} очков. Развитие выбираете вы.`}
       </p>
       <div className="row wrap">
         {building ? (
@@ -78,6 +107,8 @@ export function TrackPanel({ data, track }: { data: CityData; track: Track }) {
               Оформление и перенос
             </button>
           </>
+        ) : object && !object.built ? (
+          <span className="muted">Постройка ещё не оплачена</span>
         ) : (
           <>
             <span className="muted">Здание снято с карты</span>
@@ -96,6 +127,17 @@ export function TrackPanel({ data, track }: { data: CityData; track: Track }) {
           </>
         )}
       </div>
+      {object && (
+        <ResearchDetails
+          key={object.id}
+          data={data}
+          object={object}
+          readonly={readonly}
+        />
+      )}
+      {object && !object.built && activeTab !== "results" && !readonly && (
+        <DevelopmentChoice data={data} track={track} />
+      )}
       <div className="tabs">
         {(["notes", "results", "edit"] as const).map((value, i) => (
           <button
@@ -105,6 +147,7 @@ export function TrackPanel({ data, track }: { data: CityData; track: Track }) {
             onClick={() =>
               void transition(async () => {
                 setTab(value);
+                useUI.getState().set({ resultRequest: null });
               })
             }
           >
@@ -119,22 +162,41 @@ export function TrackPanel({ data, track }: { data: CityData; track: Track }) {
             disabled={readonly}
             onClick={() =>
               void transition(async () => {
-                const n = await service.createNote(track.id);
+                const n = await service.createNote(track.id, object?.id);
                 useUI.getState().set({ noteId: n.id });
               })
             }
           >
             Новая заметка
           </button>
+          {object && (
+            <label className="check">
+              <input
+                type="checkbox"
+                checked={allMaterials}
+                onChange={(e) => setAllMaterials(e.target.checked)}
+              />
+              Все материалы направления
+            </label>
+          )}
           <div className="note-list">
             {data.notes
-              .filter((n) => n.trackId === track.id)
+              .filter(
+                (n) =>
+                  n.trackId === track.id &&
+                  (allMaterials || n.learningObjectId === object?.id),
+              )
               .map((n) => (
                 <button
                   className={`list-row ${n.id === noteId ? "selected" : ""}`}
                   key={n.id}
                   aria-label={n.title}
-                  onClick={() => void navigate({ noteId: n.id })}
+                  onClick={() =>
+                    void navigate({
+                      noteId: n.id,
+                      objectId: n.learningObjectId ?? null,
+                    })
+                  }
                 >
                   <span>
                     {n.title}
@@ -156,7 +218,15 @@ export function TrackPanel({ data, track }: { data: CityData; track: Track }) {
           )}
         </>
       )}
-      {activeTab === "results" && <Activities data={data} track={track} />}
+      {activeTab === "results" && (
+        <Activities
+          key={`${object?.id ?? track.id}-${resultNoteId ?? "manual"}`}
+          data={data}
+          track={track}
+          object={object}
+          initialRequest={resultRequest ?? undefined}
+        />
+      )}
       {activeTab === "edit" && (
         <>
           <TrackForm track={track} />

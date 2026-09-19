@@ -939,3 +939,44 @@ small {
   margin: 0;
   min-width: 0;
 }
+.research-create,
+.research-details details {
+  margin: 14px 0;
+}
+.research-details {
+  overflow-wrap: anywhere;
+}
+.research-details fieldset {
+  border: 0;
+  padding: 0;
+  margin: 12px 0 0;
+  min-width: 0;
+}
+.development-choice {
+  margin: 18px 0;
+  padding: 15px;
+  border: 1px solid #c6d5bf;
+  border-radius: 9px;
+  background: #f1f5eb;
+}
+.growth-option {
+  display: grid;
+  gap: 8px;
+  padding: 12px 0;
+  border-top: 1px solid #d9e1d3;
+  overflow-wrap: anywhere;
+}
+.growth-option button {
+  justify-self: start;
+  max-width: 100%;
+  white-space: normal;
+}
+.growth-event {
+  padding: 8px 0;
+  border-bottom: 1px solid #d9e1d3;
+  overflow-wrap: anywhere;
+}
+.event-amount.construction {
+  background: #e9ddc8;
+  color: #695132;
+}

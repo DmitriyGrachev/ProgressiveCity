@@ -1,6 +1,7 @@
 import { useState } from "react";
 import {
   id,
+  isLearning,
   labels,
   palettes,
   type Building,
@@ -17,6 +18,7 @@ export function BuildPanel({
   building?: Building;
 }) {
   const currentTrackId = useUI((s) => s.trackId);
+  const currentObjectId = useUI((s) => s.objectId);
   const readonly = useUI((s) => Boolean(s.snapshotId));
   const placement = useUI((s) => s.placement);
   const [kind, setKind] = useState<BuildingKind>(building?.kind ?? "workshop");
@@ -24,6 +26,9 @@ export function BuildPanel({
     building?.trackId ?? currentTrackId ?? "",
   );
   const [name, setName] = useState(building?.name ?? "");
+  const [objectId, setObjectId] = useState(
+    building?.learningObjectId ?? currentObjectId ?? "",
+  );
   const [color, setColor] = useState(building?.color ?? palettes[0]);
   const [x, setX] = useState(building?.x ?? 20);
   const [y, setY] = useState(building?.y ?? 20);
@@ -32,24 +37,57 @@ export function BuildPanel({
   const available = data.tracks.filter(
     (t) =>
       !t.archived &&
-      !data.buildings.some((b) => b.trackId === t.id && b.id !== building?.id),
+      (isLearning(t)
+        ? data.learningObjects.some(
+            (o) =>
+              o.trackId === t.id &&
+              o.built &&
+              !data.buildings.some(
+                (b) => b.learningObjectId === o.id && b.id !== building?.id,
+              ),
+          )
+        : !data.buildings.some(
+            (b) => b.trackId === t.id && b.id !== building?.id,
+          )),
   );
+  const objects = data.learningObjects.filter(
+    (o) =>
+      o.trackId === trackId &&
+      o.built &&
+      !data.buildings.some(
+        (b) => b.learningObjectId === o.id && b.id !== building?.id,
+      ),
+  );
+  const selectedObject = objects.find((o) => o.id === objectId) ?? objects[0];
   const candidate = (): Building => {
     if (progress && !trackId)
       throw new Error("Выберите направление для здания.");
+    const track = data.tracks.find((t) => t.id === trackId);
+    if (progress && track && isLearning(track) && !selectedObject)
+      throw new Error(
+        "Нет доступного здания: начните исследование и оплатите его строительство из направления.",
+      );
     return {
       id: buildingId,
       kind,
       name:
         name.trim() ||
-        (progress ? data.tracks.find((t) => t.id === trackId)?.name : "") ||
+        (progress
+          ? (selectedObject?.name ??
+            data.tracks.find((t) => t.id === trackId)?.name)
+          : "") ||
         labels.buildings[kind],
       color,
       x,
       y,
       w: progress || ["park", "plaza"].includes(kind) ? 2 : 1,
       h: progress || ["park", "plaza"].includes(kind) ? 2 : 1,
-      ...(progress ? { trackId } : {}),
+      ...(progress
+        ? {
+            trackId,
+            ...(selectedObject ? { learningObjectId: selectedObject.id } : {}),
+          }
+        : {}),
     };
   };
   return (
@@ -101,6 +139,28 @@ export function BuildPanel({
             </select>
           </label>
         )}
+        {progress && objects.length > 0 && (
+          <label>
+            Исследование для здания
+            <select
+              value={selectedObject?.id ?? ""}
+              disabled={Boolean(building)}
+              onChange={(e) => setObjectId(e.target.value)}
+            >
+              {objects.map((o) => (
+                <option key={o.id} value={o.id}>
+                  {o.name} · этап {o.stage}
+                </option>
+              ))}
+            </select>
+          </label>
+        )}
+        {progress && available.length === 0 && (
+          <p className="hint">
+            Все доступные здания уже на карте. Откройте направление и начните
+            новое исследование для расширения.
+          </p>
+        )}
         <label>
           Имя объекта
           <input
@@ -108,7 +168,8 @@ export function BuildPanel({
             value={name}
             placeholder={
               progress
-                ? data.tracks.find((t) => t.id === trackId)?.name
+                ? (selectedObject?.name ??
+                  data.tracks.find((t) => t.id === trackId)?.name)
                 : labels.buildings[kind]
             }
             onChange={(e) => setName(e.target.value)}
@@ -180,7 +241,14 @@ export function BuildPanel({
               void act(async () => {
                 const b = candidate();
                 await service.placeBuilding(b);
-                useUI.getState().set({ buildingId: b.id, placement: null });
+                useUI
+                  .getState()
+                  .set({
+                    buildingId: b.id,
+                    objectId: b.learningObjectId ?? null,
+                    trackId: b.trackId ?? null,
+                    placement: null,
+                  });
               })
             }
           >
@@ -227,7 +295,8 @@ export function BuildPanel({
       )}
       <p className="hint">
         Перестройка не начисляет очки. Снятие здания сохраняет направление,
-        заметки и историю. Этап развития принадлежит направлению.
+        заметки и историю. У каждого учебного объекта свой этап; повторное
+        размещение бесплатно.
       </p>
     </>
   );

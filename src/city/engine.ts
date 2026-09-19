@@ -3,7 +3,10 @@ import type { Building, CityData, Snapshot } from "../domain/model";
 import { canPlace, gridToIso, isoToGrid, MAP_SIZE } from "../domain/rules";
 import { buildingArt } from "./art";
 export interface SceneInput {
-  data: Pick<CityData, "city" | "tracks" | "buildings" | "districts">;
+  data: Pick<
+    CityData,
+    "city" | "tracks" | "learningObjects" | "buildings" | "districts"
+  >;
   selected: string | null;
   placement: Building | null;
   snapshot?: Snapshot;
@@ -154,7 +157,10 @@ export class CityEngine {
     )) {
       const stage =
         input.snapshot?.buildings.find((s) => s.id === b.id)?.stage ??
-        input.data.tracks.find((t) => t.id === b.trackId)?.stage ??
+        (b.learningObjectId
+          ? input.data.learningObjects.find((o) => o.id === b.learningObjectId)
+              ?.stage
+          : input.data.tracks.find((t) => t.id === b.trackId)?.stage) ??
         1;
       const art = buildingArt(b, stage, input.selected === b.id);
       this.objects.addChild(art.container);
@@ -171,18 +177,32 @@ export class CityEngine {
       !input.data.city?.reducedMotion &&
       !matchMedia("(prefers-reduced-motion: reduce)").matches
     ) {
-      const upgraded = input.data.tracks.find(
-        (t) =>
-          t.stage >
-          (old.data.tracks.find((p) => p.id === t.id)?.stage ?? t.stage),
-      );
+      const upgraded = input.data.buildings.find((b) => {
+        if (!old.data.buildings.some((p) => p.id === b.id)) return true;
+        if (b.learningObjectId) {
+          const stage =
+            input.data.learningObjects.find((o) => o.id === b.learningObjectId)
+              ?.stage ?? 1;
+          return (
+            stage >
+            (old.data.learningObjects.find((o) => o.id === b.learningObjectId)
+              ?.stage ?? stage)
+          );
+        }
+        const stage =
+          input.data.tracks.find((t) => t.id === b.trackId)?.stage ?? 1;
+        return (
+          stage >
+          (old.data.tracks.find((t) => t.id === b.trackId)?.stage ?? stage)
+        );
+      });
       if (upgraded) this.pulse(upgraded.id);
     }
   }
-  private pulse(trackId: string) {
+  private pulse(buildingId: string) {
     if (this.animation) cancelAnimationFrame(this.animation);
     const start = performance.now();
-    const object = this.hits.find((h) => h.b.trackId === trackId)?.container;
+    const object = this.hits.find((h) => h.b.id === buildingId)?.container;
     if (!object) return;
     const frame = () => {
       if (object.destroyed || this.disposed) return;

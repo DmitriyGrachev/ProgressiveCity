@@ -2,9 +2,16 @@ import { create } from "zustand";
 import type { Building } from "../domain/model";
 export type Panel =
   "track" | "library" | "build" | "districts" | "history" | "settings";
+export interface ResultRequest {
+  noteId: string;
+  title: string;
+  epoch: string;
+}
 interface UI {
   panel: Panel | null;
   trackId: string | null;
+  objectId: string | null;
+  resultRequest: ResultRequest | null;
   noteId: string | null;
   buildingId: string | null;
   placement: Building | null;
@@ -18,6 +25,8 @@ interface UI {
 export const useUI = create<UI>((set) => ({
   panel: null,
   trackId: null,
+  objectId: null,
+  resultRequest: null,
   noteId: null,
   buildingId: null,
   placement: null,
@@ -56,14 +65,12 @@ export async function flushNotes() {
   await flushEditor?.();
 }
 export function reportError(e: unknown) {
-  useUI
-    .getState()
-    .set({
-      error:
-        e instanceof Error
-          ? e.message
-          : "Не удалось сохранить. Попробуйте ещё раз.",
-    });
+  useUI.getState().set({
+    error:
+      e instanceof Error
+        ? e.message
+        : "Не удалось сохранить. Попробуйте ещё раз.",
+  });
 }
 export async function act(action: () => Promise<unknown>) {
   try {

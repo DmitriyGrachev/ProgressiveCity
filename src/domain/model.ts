@@ -14,6 +14,7 @@ export interface Rules {
   version: number;
   rewards: [number, number, number];
   costs: [number, number];
+  constructionCost: number;
 }
 export interface City {
   id: "city";
@@ -35,12 +36,24 @@ export interface Track {
   comparison: "min" | "max";
   archived: boolean;
   balance: number;
+  /** Used by habit/reduce only; learning stages belong to LearningObject. */
   stage: 1 | 2 | 3;
+  createdAt: string;
+}
+export interface LearningObject {
+  id: string;
+  trackId: string;
+  name: string;
+  nextQuestion: string;
+  stage: 1 | 2 | 3;
+  built: boolean;
+  initial: boolean;
   createdAt: string;
 }
 export interface Building extends Rect {
   id: string;
   trackId?: string;
+  learningObjectId?: string;
   kind: BuildingKind;
   name: string;
   color: string;
@@ -53,6 +66,7 @@ export interface District extends Rect {
 export interface Note {
   id: string;
   trackId: string;
+  learningObjectId?: string;
   title: string;
   doc: JSONContent;
   text: string;
@@ -71,6 +85,7 @@ export interface Attachment {
 export interface Activity {
   id: string;
   trackId: string;
+  learningObjectId?: string;
   title: string;
   result: string;
   kind: ResultKind;
@@ -86,8 +101,10 @@ export interface Activity {
 }
 export interface ProgressEvent {
   id: string;
-  type: "activity" | "upgrade" | "layout";
+  type: "activity" | "upgrade" | "construction" | "layout";
   trackId?: string;
+  learningObjectId?: string;
+  sourceActivityId?: string;
   activityId?: string;
   amount: number;
   ruleVersion: number;
@@ -105,6 +122,7 @@ export interface CityData {
   city?: City;
   storageEpoch: string;
   tracks: Track[];
+  learningObjects: LearningObject[];
   buildings: Building[];
   districts: District[];
   notes: Note[];
@@ -137,3 +155,5 @@ export const labels = {
 export const palettes = ["#bc7153", "#578b7c", "#647ba3", "#ac8a49", "#90759d"];
 export const id = () => crypto.randomUUID();
 export const now = () => new Date().toISOString();
+export const isLearning = (track: Pick<Track, "type">) =>
+  track.type === "skill" || track.type === "project";

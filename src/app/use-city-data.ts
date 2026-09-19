@@ -19,6 +19,7 @@ export function useCityData(): CityData | undefined {
     })),
   );
   const tracks = useLiveQuery(() => readRecords(db.tracks));
+  const learningObjects = useLiveQuery(() => readRecords(db.learningObjects));
   const buildings = useLiveQuery(() => readRecords(db.buildings));
   const districts = useLiveQuery(() => readRecords(db.districts));
   const notes = useLiveQuery(() => readRecords(db.notes));
@@ -28,6 +29,7 @@ export function useCityData(): CityData | undefined {
   if (
     !shell ||
     !tracks ||
+    !learningObjects ||
     !buildings ||
     !districts ||
     !notes ||
@@ -37,14 +39,22 @@ export function useCityData(): CityData | undefined {
   )
     return;
   if (
-    [tracks, buildings, districts, notes, activities, events, snapshots].some(
-      (part) => part.epoch !== shell.storageEpoch,
-    )
+    [
+      tracks,
+      learningObjects,
+      buildings,
+      districts,
+      notes,
+      activities,
+      events,
+      snapshots,
+    ].some((part) => part.epoch !== shell.storageEpoch)
   )
     return;
   return {
     ...shell,
     tracks: tracks.value,
+    learningObjects: learningObjects.value,
     buildings: buildings.value,
     districts: districts.value,
     notes: notes.value,

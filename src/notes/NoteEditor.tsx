@@ -6,7 +6,14 @@ import { safeUrl } from "../domain/rules";
 import { db } from "../storage/db";
 import { service } from "../storage/service";
 import { addAttachment } from "../storage/attachments";
-import { act, navigate, registerEditor, reportError, useUI } from "../app/ui";
+import {
+  act,
+  navigate,
+  registerEditor,
+  reportError,
+  transition,
+  useUI,
+} from "../app/ui";
 import { SaveSession, type SaveStatus } from "./save-session";
 import { AttachmentNode, AttachmentCache } from "./AttachmentNode";
 import { retainDraft, type LocalDraft } from "./recovery";
@@ -306,6 +313,33 @@ export function NoteEditor({ note, epoch }: { note: Note; epoch: string }) {
                 onClick={() => void act(() => session.flush())}
               >
                 Сохранить заметку
+              </button>
+              <button
+                disabled={uploading}
+                onClick={() =>
+                  void transition(async () => {
+                    if (
+                      (await db.metadata.get("epoch"))?.value !== initialEpoch
+                    )
+                      throw new Error(
+                        "Город восстановлен в другой вкладке. Сначала выгрузите локальный материал.",
+                      );
+                    const saved = session.draft;
+                    useUI.getState().set({
+                      panel: "track",
+                      trackId: saved.trackId,
+                      objectId: saved.learningObjectId ?? null,
+                      noteId: saved.id,
+                      resultRequest: {
+                        noteId: saved.id,
+                        title: saved.title,
+                        epoch: initialEpoch,
+                      },
+                    });
+                  })
+                }
+              >
+                Зафиксировать результат
               </button>
               <button
                 onClick={() => {

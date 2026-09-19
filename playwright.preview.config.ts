@@ -3,7 +3,8 @@ import base from "./playwright.config";
 
 export default defineConfig({
   ...base,
-  testMatch: "mvp.spec.ts",
+  testMatch: ["mvp.spec.ts", "quarter.spec.ts"],
+  grep: /city, material|old city grows/,
   use: { ...base.use, baseURL: "http://127.0.0.1:4174" },
   webServer: {
     command:

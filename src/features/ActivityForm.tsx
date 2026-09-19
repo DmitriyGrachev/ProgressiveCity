@@ -6,22 +6,36 @@ import {
   type CityData,
   type ResultKind,
   type Track,
+  type LearningObject,
 } from "../domain/model";
 import { localDate } from "../domain/rules";
 import { service } from "../storage/service";
-import { act, flushNotes } from "../app/ui";
+import { act, flushNotes, type ResultRequest } from "../app/ui";
+import { DevelopmentChoice } from "./Research";
 export function ActivityForm({
   data,
   track,
   activity,
+  object,
+  initialRequest,
   fresh,
 }: {
   data: CityData;
   track: Track;
   activity?: Activity;
+  object?: LearningObject;
+  initialRequest?: ResultRequest;
   fresh: () => void;
 }) {
-  const [title, setTitle] = useState(activity?.title ?? "");
+  const initialNote = data.notes.find(
+    (n) =>
+      n.id === initialRequest?.noteId &&
+      n.trackId === track.id &&
+      n.learningObjectId === object?.id,
+  );
+  const [title, setTitle] = useState(
+    activity?.title ?? (initialNote ? initialRequest?.title : undefined) ?? "",
+  );
   const [result, setResult] = useState(activity?.result ?? "");
   const [kind, setKind] = useState<ResultKind>(activity?.kind ?? "explore");
   const [date, setDate] = useState(
@@ -32,39 +46,57 @@ export function ActivityForm({
   );
   const [value, setValue] = useState(activity?.value?.toString() ?? "");
   const [achieved, setAchieved] = useState(activity?.achieved ?? false);
-  const [noteIds, setNoteIds] = useState(activity?.noteIds ?? []);
+  const [noteIds, setNoteIds] = useState(
+    activity?.noteIds ?? (initialNote ? [initialNote.id] : []),
+  );
   const savedId = useRef(activity?.id);
   const [confirmed, setConfirmed] = useState(activity?.confirmed ?? false);
   const [saved, setSaved] = useState(Boolean(activity));
   const [busy, setBusy] = useState(false);
+  const working = useRef(false);
+  const [initialEpoch] = useState(initialRequest?.epoch ?? data.storageEpoch);
+  const invalidated = initialEpoch !== data.storageEpoch;
   const habit = ["habit", "reduce"].includes(track.type);
   async function save(confirm: boolean) {
+    if (working.current || invalidated) return;
+    working.current = true;
     setBusy(true);
     await act(async () => {
       await flushNotes();
-      const a = await service.saveActivity({
-        id: savedId.current,
-        trackId: track.id,
-        title,
-        result,
-        kind,
-        date,
-        noteIds,
-        achieved: habit ? achieved : true,
-        duration: duration === "" ? undefined : Number(duration),
-        value: value === "" ? undefined : Number(value),
-      });
+      const a = await service.saveActivity(
+        {
+          id: savedId.current,
+          trackId: track.id,
+          ...(object ? { learningObjectId: object.id } : {}),
+          title,
+          result,
+          kind,
+          date,
+          noteIds,
+          achieved: habit ? achieved : true,
+          duration: duration === "" ? undefined : Number(duration),
+          value: value === "" ? undefined : Number(value),
+        },
+        initialEpoch,
+      );
       savedId.current = a.id;
       setSaved(true);
       if (confirm) {
-        await service.confirmActivity(a.id);
+        await service.confirmActivity(a.id, initialEpoch);
         setConfirmed(true);
       }
     });
     setBusy(false);
+    working.current = false;
   }
   return (
     <section>
+      {invalidated && (
+        <p role="alert">
+          Город восстановлен в другой вкладке. Скопируйте свой вывод перед
+          обновлением страницы.
+        </p>
+      )}
       <div className="row spread">
         <h3>
           {confirmed
@@ -75,8 +107,18 @@ export function ActivityForm({
                 ? "Запись дня"
                 : "Новый результат"}
         </h3>
-        <button onClick={fresh}>Новая запись</button>
+        <button disabled={busy} onClick={fresh}>
+          Новая запись
+        </button>
       </div>
+      {object && (
+        <p className="hint">
+          {track.name} → {object.name}
+          {initialNote
+            ? ` → ${initialRequest?.title ?? initialNote.title}`
+            : ""}
+        </p>
+      )}
       {habit && (
         <p className="hint">
           {track.goal || "Цель задаёте вы"} · {track.schedule}
@@ -160,11 +202,16 @@ export function ActivityForm({
           </p>
         </>
       )}
-      {data.notes.some((n) => n.trackId === track.id) && (
+      {data.notes.some(
+        (n) => n.trackId === track.id && n.learningObjectId === object?.id,
+      ) && (
         <fieldset>
           <legend>Связанные материалы</legend>
           {data.notes
-            .filter((n) => n.trackId === track.id)
+            .filter(
+              (n) =>
+                n.trackId === track.id && n.learningObjectId === object?.id,
+            )
             .map((n) => (
               <label className="check" key={n.id}>
                 <input
@@ -178,18 +225,20 @@ export function ActivityForm({
                     )
                   }
                 />
-                {n.title}
+                {n.id === initialRequest?.noteId
+                  ? initialRequest.title
+                  : n.title}
               </label>
             ))}
         </fieldset>
       )}
       <div className="row wrap">
-        <button disabled={busy} onClick={() => void save(false)}>
+        <button disabled={busy || invalidated} onClick={() => void save(false)}>
           {confirmed ? "Сохранить дополнение" : "Сохранить черновик"}
         </button>
         <button
           className="primary"
-          disabled={busy || confirmed || track.archived}
+          disabled={busy || invalidated || confirmed || track.archived}
           onClick={() => void save(true)}
         >
           Подтвердить результат
@@ -201,15 +250,25 @@ export function ActivityForm({
           начисление.
         </p>
       )}
+      {confirmed && object && !invalidated && (
+        <DevelopmentChoice
+          data={data}
+          track={track}
+          sourceActivityId={savedId.current}
+        />
+      )}
       {saved && (
         <button
           className="text-button"
-          disabled={busy}
+          disabled={busy || invalidated}
           onClick={() =>
             void act(async () => {
               const a = await service.db.activities.get(savedId.current!);
               if (a)
-                await service.saveActivity({ ...a, archived: !a.archived });
+                await service.saveActivity(
+                  { ...a, archived: !a.archived },
+                  initialEpoch,
+                );
             })
           }
         >
@@ -221,10 +280,21 @@ export function ActivityForm({
     </section>
   );
 }
-export function Activities({ data, track }: { data: CityData; track: Track }) {
+export function Activities({
+  data,
+  track,
+  object,
+  initialRequest,
+}: {
+  data: CityData;
+  track: Track;
+  object?: LearningObject;
+  initialRequest?: ResultRequest;
+}) {
   const [selected, setSelected] = useState<string | null>(null);
   const [key, setKey] = useState(id);
   const [archived, setArchived] = useState(false);
+  const [prefill, setPrefill] = useState(initialRequest);
   const a = data.activities.find((a) => a.id === selected);
   return (
     <>
@@ -233,13 +303,16 @@ export function Activities({ data, track }: { data: CityData; track: Track }) {
         data={data}
         track={track}
         activity={a}
+        object={object}
+        initialRequest={prefill}
         fresh={() => {
           setSelected(null);
+          setPrefill(undefined);
           setKey(id());
         }}
       />
       <hr />
-      <h3>Записи направления</h3>
+      <h3>{object ? "Результаты исследования" : "Записи направления"}</h3>
       <label className="check">
         <input
           type="checkbox"
@@ -249,7 +322,12 @@ export function Activities({ data, track }: { data: CityData; track: Track }) {
         Показывать архив
       </label>
       {data.activities
-        .filter((a) => a.trackId === track.id && (archived || !a.archived))
+        .filter(
+          (a) =>
+            a.trackId === track.id &&
+            a.learningObjectId === object?.id &&
+            (archived || !a.archived),
+        )
         .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
         .map((a) => (
           <button
@@ -257,6 +335,7 @@ export function Activities({ data, track }: { data: CityData; track: Track }) {
             key={a.id}
             onClick={() => {
               setSelected(a.id);
+              setPrefill(undefined);
               setKey(id());
             }}
           >

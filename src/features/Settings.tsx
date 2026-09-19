@@ -27,6 +27,9 @@ export function Settings({ data }: { data: CityData }) {
   const [motion, setMotion] = useState(city.reducedMotion);
   const [rewards, setRewards] = useState(city.rules.rewards);
   const [costs, setCosts] = useState(city.rules.costs);
+  const [constructionCost, setConstructionCost] = useState(
+    city.rules.constructionCost,
+  );
   const [archive, setArchive] = useState<ValidatedArchive | null>(null);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState("");
@@ -114,7 +117,7 @@ export function Settings({ data }: { data: CityData }) {
       <button
         onClick={() =>
           void act(async () => {
-            await service.updateRules(rewards, costs);
+            await service.updateRules(rewards, costs, constructionCost);
             setMessage(
               "Новая версия правил сохранена. Прошлые события не изменены.",
             );
@@ -123,6 +126,16 @@ export function Settings({ data }: { data: CityData }) {
       >
         Сохранить правила
       </button>
+      <label className="inline-label">
+        Стоимость новой постройки
+        <input
+          type="number"
+          min="1"
+          max="100"
+          value={constructionCost}
+          onChange={(e) => setConstructionCost(Number(e.target.value))}
+        />
+      </label>
       <hr />
       <h3>Резервная копия</h3>
       <BackupUsage />
