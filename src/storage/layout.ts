@@ -49,6 +49,9 @@ export class LayoutService {
   };
   constructor(private db: CityDB) {}
   getSnapshot = () => this.state;
+  async whenIdle() {
+    while (this.pending) await this.queue;
+  }
   subscribe = (listener: () => void) => {
     this.listeners.add(listener);
     return () => {

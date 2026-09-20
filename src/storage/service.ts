@@ -12,6 +12,7 @@ import { createResearch, spendOnObject } from "./learning";
 import { checkRules, localDate, rewardFor, validDate } from "../domain/rules";
 import { CityDB, db } from "./db";
 import { LayoutService } from "./layout";
+import { snapshotLayout } from "../domain/comparison";
 import { dataSchema, validateDocument } from "./validation";
 import { noteSchema } from "../notes/schema";
 
@@ -407,20 +408,17 @@ export class CityService {
     return this.transaction(async () => {
       const tracks = await this.db.tracks.toArray();
       const objects = await this.db.learningObjects.toArray();
-      const buildings = (await this.db.buildings.toArray()).map((b) => ({
-        ...b,
-        stage:
-          (b.learningObjectId
-            ? objects.find((o) => o.id === b.learningObjectId)?.stage
-            : tracks.find((t) => t.id === b.trackId)?.stage) ?? (1 as const),
-      }));
-      const snapshot = {
-        id: id(),
-        name: name.trim() || "Мой снимок",
-        createdAt: now(),
-        buildings,
-        districts: await this.db.districts.toArray(),
-      };
+      const snapshot = snapshotLayout(
+        {
+          tracks,
+          learningObjects: objects,
+          buildings: await this.db.buildings.toArray(),
+          districts: await this.db.districts.toArray(),
+        },
+        id(),
+        name.trim() || "Мой снимок",
+        now(),
+      );
       await this.db.snapshots.add(snapshot);
       return snapshot;
     });

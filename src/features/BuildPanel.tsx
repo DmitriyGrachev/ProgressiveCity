@@ -19,7 +19,7 @@ export function BuildPanel({
 }) {
   const currentTrackId = useUI((s) => s.trackId);
   const currentObjectId = useUI((s) => s.objectId);
-  const readonly = useUI((s) => Boolean(s.snapshotId));
+  const readonly = useUI((s) => Boolean(s.snapshotId || s.comparison));
   const placement = useUI((s) => s.placement);
   const [kind, setKind] = useState<BuildingKind>(building?.kind ?? "workshop");
   const [trackId, setTrackId] = useState(

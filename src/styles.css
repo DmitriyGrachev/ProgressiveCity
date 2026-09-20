@@ -517,6 +517,78 @@ small {
 .layout-controls button {
   font-size: 11px;
 }
+.comparison-controls {
+  position: absolute;
+  top: 18px;
+  left: 20px;
+  right: 20px;
+  z-index: 1;
+  padding: 12px 14px;
+  border: 1px solid #c8d7bc;
+  border-radius: 9px;
+  background: #fafcf5f0;
+  max-width: 660px;
+}
+.comparison-controls button {
+  font-size: 11px;
+  padding: 7px 9px;
+}
+.comparison-controls .row {
+  margin-top: 7px;
+}
+.comparison-states {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+  margin: 10px 0;
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+.comparison-states p {
+  margin: 0;
+}
+.comparison-states small,
+.comparison-event small {
+  display: block;
+  color: var(--muted);
+  font-size: 10px;
+  margin-top: 4px;
+}
+.comparison-setup {
+  border-block: 1px solid var(--line);
+  padding: 12px 0 18px;
+  margin-bottom: 18px;
+}
+.comparison-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+  font-size: 11px;
+  margin-bottom: 12px;
+}
+.comparison-legend span {
+  background: #edf1e7;
+  border: 1px solid #d6dfce;
+  padding: 5px 7px;
+  border-radius: 5px;
+}
+.comparison-list {
+  max-height: 290px;
+  overflow-y: auto;
+}
+.comparison-list small {
+  white-space: normal;
+}
+.comparison-detail {
+  margin-top: 16px;
+  border-top: 1px solid var(--line);
+  padding-top: 10px;
+}
+.comparison-event {
+  padding: 10px 0;
+  border-bottom: 1px solid var(--line);
+  font-size: 12px;
+}
 .layout-status {
   font-size: 10px;
   color: #53674d;
@@ -856,6 +928,7 @@ small {
   }
   .panel-open .map-controls,
   .panel-open .layout-controls,
+  .panel-open .comparison-controls,
   .panel-open .map-heading {
     visibility: hidden;
   }

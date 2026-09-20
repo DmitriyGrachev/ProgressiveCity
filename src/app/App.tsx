@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useCityData } from "./use-city-data";
 import { service } from "../storage/service";
 import { act, navigate, useUI, type Panel } from "./ui";
@@ -12,6 +12,8 @@ import { History } from "../features/History";
 import { Settings } from "../features/Settings";
 import { InitialRestore } from "../features/InitialRestore";
 import { RecoveryTray } from "../notes/recovery";
+import { ComparisonPanel } from "../features/ComparisonPanel";
+import { exitComparison } from "./comparison";
 
 function Onboarding() {
   const [name, setName] = useState("Мой город");
@@ -124,6 +126,12 @@ export function App() {
   const buildingId = useUI((s) => s.buildingId);
   const objectId = useUI((s) => s.objectId);
   const error = useUI((s) => s.error);
+  const comparison = useUI((s) => s.comparison);
+  const epoch = data?.storageEpoch;
+  useEffect(() => {
+    if (comparison && epoch && comparison.scene.storageEpoch !== epoch)
+      exitComparison();
+  }, [comparison, epoch]);
   const [archived, setArchived] = useState(false);
   const errorBanner = error && (
     <div className="error-banner" role="alert">
@@ -136,7 +144,10 @@ export function App() {
       </button>
     </div>
   );
-  if (!data)
+  if (
+    !data ||
+    (comparison && comparison.scene.storageEpoch !== data.storageEpoch)
+  )
     return (
       <main className="loading">
         Открываем локальный город…{errorBanner}
@@ -178,6 +189,7 @@ export function App() {
               <button
                 className={panel === n.panel ? "active" : ""}
                 key={n.panel}
+                disabled={Boolean(comparison) && n.panel !== "history"}
                 onClick={() =>
                   void navigate({
                     panel: n.panel,
@@ -196,6 +208,7 @@ export function App() {
             <button
               aria-label="Новое направление"
               title="Новое направление"
+              disabled={Boolean(comparison)}
               onClick={() =>
                 void navigate({
                   panel: "track",
@@ -219,6 +232,7 @@ export function App() {
                     t.id === trackId && panel === "track" ? "active" : ""
                   }
                   key={t.id}
+                  disabled={Boolean(comparison)}
                   onClick={() =>
                     void navigate({
                       panel: "track",
@@ -252,6 +266,7 @@ export function App() {
             <span>Ваши материалы — ваш путь.</span>
             <button
               className="text-button"
+              disabled={Boolean(comparison)}
               onClick={() => void navigate({ panel: "settings", noteId: null })}
             >
               Не забудьте резервную копию
@@ -268,7 +283,9 @@ export function App() {
             >
               ×
             </button>
-            {panel === "track" &&
+            {comparison && <ComparisonPanel data={data} />}
+            {!comparison &&
+              panel === "track" &&
               (track ? (
                 <TrackPanel
                   key={`${track.id}-${objectId ?? "initial"}`}
@@ -281,17 +298,19 @@ export function App() {
                   <TrackForm />
                 </>
               ))}
-            {panel === "library" && <Library data={data} />}
-            {panel === "build" && (
+            {!comparison && panel === "library" && <Library data={data} />}
+            {!comparison && panel === "build" && (
               <BuildPanel
                 key={building?.id ?? `new-${trackId}-${objectId}`}
                 data={data}
                 building={building}
               />
             )}
-            {panel === "districts" && <Districts data={data} />}
-            {panel === "history" && <History data={data} />}
-            {panel === "settings" && <Settings data={data} />}
+            {!comparison && panel === "districts" && <Districts data={data} />}
+            {!comparison && panel === "history" && (
+              <History key={data.storageEpoch} data={data} />
+            )}
+            {!comparison && panel === "settings" && <Settings data={data} />}
           </aside>
         )}
       </div>

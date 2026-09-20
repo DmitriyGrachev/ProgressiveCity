@@ -13,7 +13,7 @@ const freshDistrict = (): District => ({
 });
 export function Districts({ data }: { data: CityData }) {
   const [draft, setDraft] = useState(freshDistrict);
-  const readonly = useUI((s) => Boolean(s.snapshotId));
+  const readonly = useUI((s) => Boolean(s.snapshotId || s.comparison));
   return (
     <>
       <span className="eyebrow">Свой смысл каждому месту</span>

@@ -1,5 +1,6 @@
 import { create } from "zustand";
 import type { Building } from "../domain/model";
+import type { ComparisonSession, ComparisonView } from "../domain/comparison";
 export type Panel =
   "track" | "library" | "build" | "districts" | "history" | "settings";
 export interface ResultRequest {
@@ -18,6 +19,10 @@ interface UI {
   repeatPlacement: boolean;
   placementEpoch: string | null;
   snapshotId: string | null;
+  comparison: ComparisonSession | null;
+  comparisonView: ComparisonView;
+  comparisonDecor: boolean;
+  comparisonSelection: string | null;
   fit: number;
   focus: string | null;
   error: string;
@@ -35,6 +40,10 @@ export const useUI = create<UI>((set) => ({
   repeatPlacement: false,
   placementEpoch: null,
   snapshotId: null,
+  comparison: null,
+  comparisonView: "changes",
+  comparisonDecor: true,
+  comparisonSelection: null,
   fit: 0,
   focus: null,
   error: "",
@@ -49,6 +58,11 @@ export function registerEditor(flush: () => Promise<void>) {
   };
 }
 export async function navigate(patch: Partial<Omit<UI, "set">>) {
+  if (
+    useUI.getState().comparison &&
+    ((patch.panel && patch.panel !== "history") || patch.snapshotId)
+  )
+    return;
   await transition(async () => {
     useUI.getState().set({ ...patch, error: "" });
   });

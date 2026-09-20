@@ -1,8 +1,11 @@
 import { Application, Container, Graphics, Point, Text } from "pixi.js";
-import type { Building, CityData, Snapshot } from "../domain/model";
+import type { Building, CityData, Rect, Snapshot } from "../domain/model";
+import type { CityChange, ComparisonView } from "../domain/comparison";
+import { comparisonArt } from "./comparison-art";
 import { canPlace, gridToIso, isoToGrid, MAP_SIZE } from "../domain/rules";
 import { buildingArt } from "./art";
 import { extendRoad, roadCellState, type Cell } from "../domain/roads";
+const MIN_ZOOM = 0.03;
 export interface SceneInput {
   data: Pick<
     CityData,
@@ -18,6 +21,7 @@ export interface SceneInput {
   repeatPlacement: boolean;
   busy: boolean;
   snapshot?: Snapshot;
+  comparison?: { view: ComparisonView; changes: CityChange[] };
 }
 export interface SceneCallbacks {
   select: (b: Building) => void;
@@ -31,6 +35,14 @@ export class CityEngine {
   private ground = new Container();
   private objects = new Container();
   private preview = new Graphics();
+  private comparisonLayer = new Container();
+  private normalCamera?: {
+    x: number;
+    y: number;
+    zoom: number;
+    width: number;
+    height: number;
+  };
   private input?: SceneInput;
   private hits: { b: Building; graphic: Graphics; container: Container }[] = [];
   private observer?: ResizeObserver;
@@ -75,7 +87,12 @@ export class CityEngine {
     this.host.appendChild(this.app.canvas);
     this.app.canvas.setAttribute("aria-label", "Интерактивная карта города");
     this.app.canvas.tabIndex = 0;
-    this.world.addChild(this.ground, this.objects, this.preview);
+    this.world.addChild(
+      this.ground,
+      this.objects,
+      this.comparisonLayer,
+      this.preview,
+    );
     this.app.stage.addChild(this.world);
     this.drawGround();
     this.observer = new ResizeObserver(() => {
@@ -134,6 +151,25 @@ export class CityEngine {
     const old = this.input;
     this.input = input;
     if (!this.initialized) return;
+    if (input.comparison && !old?.comparison) {
+      this.normalCamera = {
+        ...this.camera,
+        width: this.app.screen.width,
+        height: this.app.screen.height,
+      };
+      this.cancelGesture();
+    } else if (!input.comparison && old?.comparison && this.normalCamera) {
+      this.camera = {
+        x:
+          this.normalCamera.x +
+          (this.app.screen.width - this.normalCamera.width) / 2,
+        y:
+          this.normalCamera.y +
+          (this.app.screen.height - this.normalCamera.height) / 2,
+        zoom: this.normalCamera.zoom,
+      };
+      this.normalCamera = undefined;
+    }
     if (
       old?.placement !== input.placement ||
       old?.snapshot !== input.snapshot ||
@@ -141,6 +177,9 @@ export class CityEngine {
     )
       this.cancelGesture();
     this.objects.removeChildren().forEach((c) => c.destroy({ children: true }));
+    this.comparisonLayer
+      .removeChildren()
+      .forEach((c) => c.destroy({ children: true }));
     this.hits = [];
     const buildings = input.snapshot?.buildings ?? input.data.buildings;
     const districts = input.snapshot?.districts ?? input.data.districts;
@@ -186,6 +225,18 @@ export class CityEngine {
       this.objects.addChild(art.container);
       this.hits.push({ b, ...art });
     }
+    if (input.comparison)
+      this.comparisonLayer.addChild(
+        comparisonArt(input.comparison.changes, input.comparison.view),
+      );
+    this.app.canvas.dataset.comparisonView = input.comparison?.view ?? "none";
+    this.app.canvas.dataset.comparisonChanges = String(
+      input.comparison?.changes.length ?? 0,
+    );
+    this.app.canvas.dataset.buildingStages = JSON.stringify(
+      input.snapshot?.buildings.map((b) => ({ id: b.id, stage: b.stage })) ??
+        [],
+    );
     if (!input.placement) {
       this.preview.clear();
       this.ghost = undefined;
@@ -266,11 +317,42 @@ export class CityEngine {
     );
     this.focusAt(20, 20);
   }
+  focusChanges() {
+    const rects: Rect[] = (this.input?.comparison?.changes ?? []).flatMap((c) =>
+      [c.before, c.after].filter((v): v is NonNullable<typeof v> => Boolean(v)),
+    );
+    if (!rects.length) return;
+    const points = rects
+      .flatMap((r) => [
+        [r.x, r.y],
+        [r.x + r.w, r.y],
+        [r.x + r.w, r.y + r.h],
+        [r.x, r.y + r.h],
+      ])
+      .map(([x, y]) => gridToIso(x, y));
+    const left = Math.min(...points.map((p) => p.x)) - 55,
+      right = Math.max(...points.map((p) => p.x)) + 55;
+    const top = Math.min(...points.map((p) => p.y)) - 135,
+      bottom = Math.max(...points.map((p) => p.y)) + 70;
+    this.camera.zoom = Math.max(
+      MIN_ZOOM,
+      Math.min(
+        1.6,
+        (this.host.clientWidth - 60) / (right - left),
+        (this.host.clientHeight - 300) / (bottom - top),
+      ),
+    );
+    this.camera.x =
+      this.host.clientWidth / 2 - ((left + right) / 2) * this.camera.zoom;
+    this.camera.y =
+      this.host.clientHeight / 2 + 60 - ((top + bottom) / 2) * this.camera.zoom;
+    this.render();
+  }
   zoomBy(factor: number) {
     this.zoom(factor, this.host.clientWidth / 2, this.host.clientHeight / 2);
   }
   private zoom(factor: number, x: number, y: number) {
-    const next = Math.max(0.18, Math.min(2.5, this.camera.zoom * factor));
+    const next = Math.max(MIN_ZOOM, Math.min(2.5, this.camera.zoom * factor));
     const ratio = next / this.camera.zoom;
     this.camera.x = x - (x - this.camera.x) * ratio;
     this.camera.y = y - (y - this.camera.y) * ratio;

@@ -44,7 +44,7 @@ export function NoteEditor({ note, epoch }: { note: Note; epoch: string }) {
       await pendingCopy.current?.catch(() => {});
     },
   }));
-  const readonly = useUI((s) => Boolean(s.snapshotId));
+  const readonly = useUI((s) => Boolean(s.snapshotId || s.comparison));
   const transitioning = useUI((s) => s.transitioning);
   const locked =
     readonly || transitioning || copying || invalidated || !cacheReady;

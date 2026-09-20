@@ -2,10 +2,16 @@ import { useState } from "react";
 import type { CityData } from "../domain/model";
 import { act, navigate, useUI } from "../app/ui";
 import { service } from "../storage/service";
+import { startComparison } from "../app/comparison";
 export function History({ data }: { data: CityData }) {
   const [name, setName] = useState("");
   const [layout, setLayout] = useState(false);
   const snapshotId = useUI((s) => s.snapshotId);
+  const transitioning = useUI((s) => s.transitioning);
+  const [beforeId, setBeforeId] = useState(
+    snapshotId ?? data.snapshots[0]?.id ?? "",
+  );
+  const [afterId, setAfterId] = useState("");
   return (
     <>
       <span className="eyebrow">Накопленный путь</span>
@@ -14,6 +20,45 @@ export function History({ data }: { data: CityData }) {
         Снимок сохраняет планировку, оформление и этапы. Текст заметок всегда
         открывается в текущей редакции.
       </p>
+      <section className="comparison-setup" aria-label="Выбор состояний города">
+        <h3>Мой путь · сравнить город</h3>
+        <label>
+          A — было
+          <select
+            value={beforeId}
+            onChange={(e) => setBeforeId(e.target.value)}
+          >
+            <option value="">Выберите снимок</option>
+            {data.snapshots.map((s) => (
+              <option key={s.id} value={s.id}>
+                {s.name} · {new Date(s.createdAt).toLocaleString("ru")}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label>
+          B — стало
+          <select value={afterId} onChange={(e) => setAfterId(e.target.value)}>
+            <option value="">
+              Текущее состояние — зафиксировать при открытии
+            </option>
+            {data.snapshots.map((s) => (
+              <option key={s.id} value={s.id}>
+                {s.name} · {new Date(s.createdAt).toLocaleString("ru")}
+              </option>
+            ))}
+          </select>
+        </label>
+        <button
+          className="primary wide"
+          disabled={!beforeId || transitioning}
+          onClick={() =>
+            void startComparison(beforeId, afterId || null, data.storageEpoch)
+          }
+        >
+          Сравнить город
+        </button>
+      </section>
       <div className="row">
         <input
           aria-label="Название снимка"

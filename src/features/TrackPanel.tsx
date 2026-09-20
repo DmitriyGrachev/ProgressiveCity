@@ -19,7 +19,7 @@ export function TrackPanel({ data, track }: { data: CityData; track: Track }) {
     (o) => o.trackId === track.id && o.id === (objectId ?? track.id),
   );
   const stage = object?.stage ?? track.stage;
-  const readonly = useUI((s) => Boolean(s.snapshotId));
+  const readonly = useUI((s) => Boolean(s.snapshotId || s.comparison));
   const building = data.buildings.find(
     (b) => b.trackId === track.id && b.learningObjectId === object?.id,
   );

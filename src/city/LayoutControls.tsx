@@ -16,7 +16,7 @@ export function LayoutControls({
   cancel: () => void;
 }) {
   const history = useLayoutHistory();
-  const readonly = useUI((s) => Boolean(s.snapshotId));
+  const readonly = useUI((s) => Boolean(s.snapshotId || s.comparison));
   const placement = useUI((s) => s.placement);
   useEffect(() => {
     const key = (e: KeyboardEvent) => {

@@ -55,6 +55,14 @@ test("interactive canvas: hit testing after zoom/pan, placement, collisions, rem
   await expect(
     page.getByText("Выбран инструмент размещения.", { exact: false }),
   ).toHaveCount(0);
+  // The previous zoom/pan can leave the next free cell behind the side panel.
+  await page.getByRole("button", { name: "Показать весь город" }).click();
+  const target = await gridPoint(page, 21.5, 17.5);
+  const visibleMap = (await canvas.boundingBox())!;
+  expect(target.x).toBeGreaterThan(visibleMap.x);
+  expect(target.x).toBeLessThan(visibleMap.x + visibleMap.width);
+  expect(target.y).toBeGreaterThan(visibleMap.y);
+  expect(target.y).toBeLessThan(visibleMap.y + visibleMap.height);
   await page.getByRole("button", { name: "Выбрать место на карте" }).click();
   await clickCell(page, 21, 17);
   await expect(canvas).toHaveAttribute("data-building-count", "2");
