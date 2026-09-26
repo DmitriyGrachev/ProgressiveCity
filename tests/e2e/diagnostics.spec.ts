@@ -103,6 +103,7 @@ test("saving note text never updates or recreates the city scene", async ({
   page,
 }) => {
   await openNote(page);
+  const cameraBefore = await page.locator("canvas").getAttribute("data-camera");
   await page.evaluate(async () => {
     const path = "/src/city/engine.ts";
     const { CityEngine } = (await import(
@@ -141,6 +142,10 @@ test("saving note text never updates or recreates the city scene", async ({
       () => (window as unknown as { sceneCounts: unknown }).sceneCounts,
     ),
   ).toEqual({ updates: 0, recreations: 0 });
+  await expect(page.locator("canvas")).toHaveAttribute(
+    "data-camera",
+    cameraBefore!,
+  );
 });
 test("copy locks every editor mutation until the delayed write completes and then permits navigation", async ({
   page,

@@ -1,11 +1,4 @@
-import {
-  Application,
-  Container,
-  Graphics,
-  Point,
-  Rectangle,
-  Text,
-} from "pixi.js";
+import { Application, Container, Graphics, Point, Rectangle } from "pixi.js";
 import type { Building, CityData, Rect, Snapshot } from "../domain/model";
 import type { CityChange, ComparisonView } from "../domain/comparison";
 import { comparisonArt } from "./comparison-art";
@@ -13,6 +6,8 @@ import { canPlace, gridToIso, isoToGrid, MAP_SIZE } from "../domain/rules";
 import { buildingArt } from "./art";
 import { extendRoad, roadCellState, type Cell } from "../domain/roads";
 import { registerPreviewRenderer } from "./preview-cache";
+import { CityLabels, type CityLabel, type LabelMode } from "./CityLabels";
+import { fitBounds, type ScreenRect } from "./label-layout";
 const MIN_ZOOM = 0.03;
 export interface SceneInput {
   data: Pick<
@@ -29,7 +24,11 @@ export interface SceneInput {
   repeatPlacement: boolean;
   busy: boolean;
   snapshot?: Snapshot;
-  comparison?: { view: ComparisonView; changes: CityChange[] };
+  comparison?: {
+    view: ComparisonView;
+    changes: CityChange[];
+    selectedKey?: string | null;
+  };
 }
 export interface SceneCallbacks {
   select: (b: Building) => void;
@@ -75,11 +74,16 @@ export class CityEngine {
   private stroke?: { cells: Map<string, Cell>; last: Cell };
   private saving = false;
   private unregisterPreviews?: () => void;
+  private labels: CityLabels;
+  private hovered: string | null = null;
+  private pointer?: { clientX: number; clientY: number };
+  private occupiedBounds: ScreenRect[] = [];
   private host: HTMLDivElement;
   private callbacks: SceneCallbacks;
   constructor(host: HTMLDivElement, callbacks: SceneCallbacks) {
     this.host = host;
     this.callbacks = callbacks;
+    this.labels = new CityLabels(host, () => this.render());
   }
   async init() {
     await this.app.init({
@@ -114,7 +118,6 @@ export class CityEngine {
             ...(progress ? { trackId: "preview" } : {}),
           },
           stage,
-          false,
           false,
         );
         try {
@@ -157,6 +160,7 @@ export class CityEngine {
     this.observer.observe(this.host);
     this.host.addEventListener("pointerdown", this.down);
     this.host.addEventListener("pointermove", this.move);
+    this.host.addEventListener("pointerleave", this.leave);
     this.host.addEventListener("pointerup", this.up);
     this.host.addEventListener("pointercancel", this.pointerCancel);
     this.host.addEventListener("lostpointercapture", this.pointerCancel);
@@ -234,6 +238,8 @@ export class CityEngine {
       .removeChildren()
       .forEach((c) => c.destroy({ children: true, context: true }));
     this.hits = [];
+    this.occupiedBounds = [];
+    const labels: CityLabel[] = [];
     const buildings = input.snapshot?.buildings ?? input.data.buildings;
     const districts = input.snapshot?.districts ?? input.data.districts;
     for (const d of districts) {
@@ -251,18 +257,21 @@ export class CityEngine {
         .fill({ color: d.color, alpha: 0.17 })
         .stroke({ color: d.color, width: 2, alpha: 0.65 });
       this.objects.addChild(g);
-      const p = gridToIso(d.x, d.y);
-      const label = new Text({
-        text: d.name,
-        style: {
-          fontFamily: "Segoe UI",
-          fontSize: 14,
-          fontWeight: "600",
-          fill: d.color,
-        },
+      const bounds = g.getLocalBounds();
+      const rect = {
+        x: bounds.x,
+        y: bounds.y,
+        width: bounds.width,
+        height: bounds.height,
+      };
+      this.occupiedBounds.push(rect);
+      labels.push({
+        id: `district:${d.id}`,
+        entityId: d.id,
+        name: d.name,
+        bounds: rect,
+        district: true,
       });
-      label.position.set(p.x + 8, p.y + 8);
-      this.objects.addChild(label);
     }
     for (const b of [...buildings].sort(
       (a, b) => a.x + a.y + a.w + a.h - (b.x + b.y + b.w + b.h),
@@ -277,11 +286,35 @@ export class CityEngine {
       const art = buildingArt(b, stage, input.selected === b.id);
       this.objects.addChild(art.container);
       this.hits.push({ b, ...art });
+      const local = art.graphic.getLocalBounds();
+      const bounds = {
+        x: local.x + art.container.x,
+        y: local.y + art.container.y,
+        width: local.width,
+        height: local.height,
+      };
+      this.occupiedBounds.push(bounds);
+      labels.push({
+        id: `building:${b.id}`,
+        entityId: b.id,
+        name: b.name,
+        bounds,
+      });
     }
-    if (input.comparison)
-      this.comparisonLayer.addChild(
-        comparisonArt(input.comparison.changes, input.comparison.view),
+    if (input.comparison) {
+      const annotations = comparisonArt(
+        input.comparison.changes,
+        input.comparison.view,
       );
+      this.comparisonLayer.addChild(annotations.layer);
+      for (const mark of annotations.labels) {
+        const existing = labels.findIndex((label) => label.id === mark.id);
+        if (existing >= 0)
+          labels[existing] = { ...mark, bounds: labels[existing].bounds };
+        else labels.push(mark);
+      }
+    }
+    this.labels.set(labels);
     this.app.canvas.dataset.comparisonView = input.comparison?.view ?? "none";
     this.app.canvas.dataset.comparisonChanges = String(
       input.comparison?.changes.length ?? 0,
@@ -355,10 +388,25 @@ export class CityEngine {
     if (!this.initialized || this.disposed) return;
     this.world.position.set(this.camera.x, this.camera.y);
     this.world.scale.set(this.camera.zoom);
-    for (const h of this.hits) {
-      const label = h.container.getChildByLabel("building-label");
-      if (label) label.visible = this.camera.zoom >= 0.6;
-    }
+    const pointer = this.pointer ? this.point(this.pointer) : undefined;
+    const hover =
+      pointer &&
+      !this.drag &&
+      !this.input?.placement &&
+      pointer.x >= 0 &&
+      pointer.y >= 0 &&
+      pointer.x <= this.host.clientWidth &&
+      pointer.y <= this.host.clientHeight
+        ? this.hitAt(pointer)
+        : undefined;
+    this.hovered = hover?.b.id ?? null;
+    this.app.canvas.title = hover?.b.name ?? "";
+    this.labels.update(
+      this.camera,
+      this.input?.selected ?? null,
+      this.hovered,
+      this.input?.comparison?.selectedKey,
+    );
     this.app.canvas.dataset.camera = JSON.stringify(this.camera);
     this.app.canvas.dataset.buildingCount = String(this.hits.length);
     this.app.render();
@@ -382,6 +430,29 @@ export class CityEngine {
       this.host.clientHeight / 1400,
     );
     this.focusAt(20, 20);
+  }
+  setLabelMode(mode: LabelMode) {
+    this.labels.setMode(mode);
+    this.render();
+  }
+  refreshView() {
+    this.render();
+  }
+  fitBuildings() {
+    if (!this.occupiedBounds.length) {
+      this.fitAll();
+      return;
+    }
+    const bounds = this.occupiedBounds;
+    const left = Math.min(...bounds.map((b) => b.x)),
+      top = Math.min(...bounds.map((b) => b.y));
+    const right = Math.max(...bounds.map((b) => b.x + b.width)),
+      bottom = Math.max(...bounds.map((b) => b.y + b.height));
+    this.camera = fitBounds(
+      { x: left, y: top, width: right - left, height: bottom - top },
+      this.labels.viewport(),
+    );
+    this.render();
   }
   focusChanges() {
     const rects: Rect[] = (this.input?.comparison?.changes ?? []).flatMap((c) =>
@@ -425,7 +496,7 @@ export class CityEngine {
     this.camera.zoom = next;
     this.render();
   }
-  private point(e: PointerEvent | WheelEvent) {
+  private point(e: { clientX: number; clientY: number }) {
     const r = this.host.getBoundingClientRect();
     return { x: e.clientX - r.left, y: e.clientY - r.top };
   }
@@ -475,6 +546,8 @@ export class CityEngine {
       button: e.button,
       pointerId: e.pointerId,
     };
+    this.pointer = { clientX: e.clientX, clientY: e.clientY };
+    this.render();
     if (e.button === 0 && this.roadTool && !this.input?.snapshot) {
       this.stroke = { cells: new Map(), last: this.cell(e) };
       this.extendStroke(this.cell(e));
@@ -520,6 +593,7 @@ export class CityEngine {
   private move = (e: PointerEvent) => {
     if (this.drag && this.drag.pointerId !== e.pointerId) return;
     const p = this.point(e);
+    this.pointer = { clientX: e.clientX, clientY: e.clientY };
     if (this.drag && (!this.input?.placement || this.drag.button !== 0)) {
       if (Math.hypot(p.x - this.drag.x, p.y - this.drag.y) > 4)
         this.drag.moved = true;
@@ -535,8 +609,35 @@ export class CityEngine {
         const cell = this.cell(e);
         this.drawPreview(cell.x, cell.y);
       }
+    } else if (!this.drag) {
+      const hit = this.hitAt(p);
+      const hovered = hit?.b.id ?? null;
+      this.app.canvas.title = hit?.b.name ?? "";
+      if (hovered !== this.hovered) {
+        this.hovered = hovered;
+        this.render();
+      }
     }
   };
+  private leave = () => {
+    this.pointer = undefined;
+    if (this.hovered) {
+      this.hovered = null;
+      this.app.canvas.title = "";
+      this.render();
+    }
+  };
+  private hitAt(p: { x: number; y: number }) {
+    const x = (p.x - this.camera.x) / this.camera.zoom,
+      y = (p.y - this.camera.y) / this.camera.zoom;
+    return [...this.hits]
+      .reverse()
+      .find((h) =>
+        h.graphic.containsPoint(
+          new Point(x - h.container.x, y - h.container.y),
+        ),
+      );
+  }
   private commit(action: () => Promise<void>) {
     this.saving = true;
     void action().finally(() => {
@@ -552,6 +653,8 @@ export class CityEngine {
     this.stroke = undefined;
     if (this.host.hasPointerCapture(e.pointerId))
       this.host.releasePointerCapture(e.pointerId);
+    this.pointer = { clientX: e.clientX, clientY: e.clientY };
+    this.render();
     if (drag.moved || e.button !== 0 || this.saving || this.input?.busy) return;
     if (this.input?.placement && !this.input.snapshot) {
       if (cells) {
@@ -570,18 +673,7 @@ export class CityEngine {
       }
       return;
     }
-    const p = this.point(e);
-    const world = {
-      x: (p.x - this.camera.x) / this.camera.zoom,
-      y: (p.y - this.camera.y) / this.camera.zoom,
-    };
-    const hit = [...this.hits]
-      .reverse()
-      .find((h) =>
-        h.graphic.containsPoint(
-          new Point(world.x - h.container.x, world.y - h.container.y),
-        ),
-      );
+    const hit = this.hitAt(this.point(e));
     if (hit) this.callbacks.select(hit.b);
   };
   private drawPreview(x: number, y: number) {
@@ -604,12 +696,7 @@ export class CityEngine {
     const key = `${b.kind}:${b.color}:${b.w}:${b.h}:${Boolean(b.trackId)}:${stage}`;
     if (this.ghostKey !== key || !this.ghostArt) {
       this.clearGhost();
-      this.ghostArt = buildingArt(
-        { ...b, x: 0, y: 0 },
-        stage,
-        false,
-        false,
-      ).container;
+      this.ghostArt = buildingArt({ ...b, x: 0, y: 0 }, stage, false).container;
       this.ghostArt.alpha = 0.58;
       this.ghostArt.eventMode = "none";
       this.ghostLayer.addChild(this.ghostArt);
@@ -686,10 +773,12 @@ export class CityEngine {
     this.disposed = true;
     this.unregisterPreviews?.();
     this.previewStatus.remove();
+    this.labels.destroy();
     this.observer?.disconnect();
     if (this.animation) cancelAnimationFrame(this.animation);
     this.host.removeEventListener("pointerdown", this.down);
     this.host.removeEventListener("pointermove", this.move);
+    this.host.removeEventListener("pointerleave", this.leave);
     this.host.removeEventListener("pointerup", this.up);
     this.host.removeEventListener("pointercancel", this.pointerCancel);
     this.host.removeEventListener("lostpointercapture", this.pointerCancel);

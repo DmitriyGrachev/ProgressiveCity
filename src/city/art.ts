@@ -1,4 +1,4 @@
-import { Container, Graphics, Text } from "pixi.js";
+import { Container, Graphics } from "pixi.js";
 import type { Building } from "../domain/model";
 import { gridToIso } from "../domain/rules";
 
@@ -91,12 +91,7 @@ function windowPane(g: Graphics, x: number, y: number, side = 1) {
     .lineTo(x + 8, y + 7 + 4 * side)
     .stroke({ color: "#e9dcb9", width: 1.5 });
 }
-export function buildingArt(
-  b: Building,
-  stage: number,
-  selected: boolean,
-  showLabel = true,
-) {
+export function buildingArt(b: Building, stage: number, selected: boolean) {
   const container = new Container();
   const g = new Graphics();
   container.addChild(g);
@@ -282,20 +277,5 @@ export function buildingArt(
     }
   }
   tree(g, 42, 44, 0.45);
-  if (!showLabel) return { container, graphic: g };
-  const label = new Text({
-    text: b.name,
-    style: {
-      fontFamily: "Segoe UI, sans-serif",
-      fontSize: 11,
-      fill: "#344f41",
-      fontWeight: "600",
-      align: "center",
-    },
-  });
-  label.anchor.set(0.5, 0);
-  label.position.set(0, size + 4);
-  label.label = "building-label";
-  container.addChild(label);
   return { container, graphic: g };
 }

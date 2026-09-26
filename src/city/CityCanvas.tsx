@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useLiveQuery } from "dexie-react-hooks";
 import { db } from "../storage/db";
 import { useUI, act, navigate, reportError } from "../app/ui";
@@ -9,6 +9,7 @@ import { LayoutControls, useLayoutHistory } from "./LayoutControls";
 import { buildingKey, visibleChanges } from "../domain/comparison";
 import { ComparisonControls } from "./ComparisonControls";
 import { exitComparison } from "../app/comparison";
+import type { LabelMode } from "./CityLabels";
 const cancelPlacement = () => useUI.getState().set({ placement: null });
 export function CityCanvas() {
   const host = useRef<HTMLDivElement>(null);
@@ -23,6 +24,8 @@ export function CityCanvas() {
   const showDecor = useUI((s) => s.comparisonDecor);
   const comparisonSelection = useUI((s) => s.comparisonSelection);
   const transitioning = useUI((s) => s.transitioning);
+  const panel = useUI((s) => s.panel);
+  const [labelMode, setLabelMode] = useState<LabelMode>("auto");
   const sceneData = useLiveQuery(
     () =>
       db.transaction(
@@ -141,6 +144,7 @@ export function CityCanvas() {
       comparison: {
         view,
         changes: visibleChanges(comparison.changes, showDecor),
+        selectedKey: comparisonSelection,
       },
       selected: target?.id ?? null,
     };
@@ -180,13 +184,19 @@ export function CityCanvas() {
     if (fit) engine.current?.fitAll();
   }, [fit]);
   useEffect(() => {
+    engine.current?.setLabelMode(labelMode);
+  }, [labelMode]);
+  useEffect(() => {
+    engine.current?.refreshView();
+  }, [panel]);
+  useEffect(() => {
     if (focus) {
       engine.current?.focusBuilding(focus);
       useUI.getState().set({ focus: null });
     }
   }, [focus]);
   return (
-    <div className="map-wrap">
+    <div className={`map-wrap${snapshotId ? " snapshot-view" : ""}`}>
       {comparison ? (
         <ComparisonControls focus={() => engine.current?.focusChanges()} />
       ) : (
@@ -219,9 +229,33 @@ export function CityCanvas() {
         >
           −
         </button>
-        <button onClick={() => engine.current?.fitAll()}>
-          Показать весь город
+        <button onClick={() => engine.current?.fitBuildings()}>
+          Показать застройку
         </button>
+        <button
+          aria-label="Показать весь город"
+          title="Показать всю карту"
+          onClick={() => engine.current?.fitAll()}
+        >
+          Вся карта
+        </button>
+        <select
+          aria-label="Подписи на карте"
+          title="Выбранное и наведённое имя доступны в обоих режимах"
+          value={labelMode}
+          onChange={(e) => setLabelMode(e.target.value as LabelMode)}
+        >
+          <option value="auto">Подписи: авто</option>
+          <option value="focused">Выбор / наведение</option>
+        </select>
+        {snapshotId && (
+          <button
+            className="return-present primary"
+            onClick={() => useUI.getState().set({ snapshotId: null })}
+          >
+            Вернуться в текущий город
+          </button>
+        )}
       </div>
       <div className="map-help">
         {comparison
@@ -232,14 +266,6 @@ export function CityCanvas() {
               : `Разместите «${placement.name}»${repeatPlacement ? " несколько раз" : ""} · зелёный — можно · Escape — завершить`
             : "Перетаскивание — камера · колесо — масштаб · нажатие на здание — материалы"}
       </div>
-      {snapshotId && (
-        <button
-          className="return-present primary"
-          onClick={() => useUI.getState().set({ snapshotId: null })}
-        >
-          Вернуться в текущий город
-        </button>
-      )}
     </div>
   );
 }

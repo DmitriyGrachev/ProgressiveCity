@@ -1,12 +1,12 @@
-import { Container, Graphics, Text } from "pixi.js";
+import { Container, Graphics } from "pixi.js";
 import { type CityChange, type ComparisonView } from "../domain/comparison";
 import type { Rect } from "../domain/model";
 import { gridToIso } from "../domain/rules";
+import type { CityLabel } from "./CityLabels";
 
 function mark(
   layer: Container,
   rect: Rect,
-  text: string,
   color: string,
   historical: boolean,
 ) {
@@ -28,35 +28,35 @@ function mark(
       .stroke({ color, width: 1.5, alpha: 0.7 });
   }
   layer.addChild(outline);
-  const bottom = gridToIso(rect.x + rect.w, rect.y + rect.h);
-  const label = new Text({
-    text,
-    style: {
-      fontFamily: "Segoe UI",
-      fontSize: 11,
-      fontWeight: "600",
-      fill: color,
-      stroke: { color: "#fafcf5", width: 4 },
-    },
-  });
-  label.anchor.set(0.5, 0);
-  label.position.set(bottom.x, bottom.y + (historical ? 4 : 20));
-  layer.addChild(label);
+  return {
+    x: Math.min(...points.map((p) => p.x)),
+    y: Math.min(...points.map((p) => p.y)),
+    width:
+      Math.max(...points.map((p) => p.x)) - Math.min(...points.map((p) => p.x)),
+    height:
+      Math.max(...points.map((p) => p.y)) - Math.min(...points.map((p) => p.y)),
+  };
 }
 export function comparisonArt(changes: CityChange[], view: ComparisonView) {
   const layer = new Container();
+  const labels: CityLabel[] = [];
   // Historical contours are annotations, deliberately absent from hit testing.
   layer.eventMode = "none";
-  if (view !== "changes") return layer;
+  if (view !== "changes") return { layer, labels };
   for (const c of changes) {
-    if (c.before && (!c.after || c.flags.includes("moved")))
-      mark(
-        layer,
-        c.before,
-        c.after ? "A · место до переноса" : "− Снято · контур A",
-        "#81514d",
-        true,
-      );
+    if (c.before && (!c.after || c.flags.includes("moved"))) {
+      const bounds = mark(layer, c.before, "#81514d", true);
+      labels.push({
+        id: `history:${c.key}`,
+        changeKey: c.key,
+        name: `A · ${c.before.name}`,
+        detail: c.after
+          ? "↔ Место до переноса · контур A"
+          : "− Снято · контур A",
+        bounds,
+        historical: true,
+      });
+    }
     if (c.after) {
       const tags = c.flags
         .filter((f) => f !== "removed")
@@ -71,14 +71,22 @@ export function comparisonArt(changes: CityChange[], view: ComparisonView) {
                   ? `Э ${c.before?.stage} → ${c.after?.stage}`
                   : "Этап",
         );
-      mark(
+      const bounds = mark(
         layer,
         c.after,
-        tags.join(" · "),
         c.flags.includes("stage") ? "#805b20" : "#235f60",
         false,
       );
+      labels.push({
+        id: `${c.entity === "building" ? "building" : "district"}:${c.after.id}`,
+        entityId: c.after.id,
+        changeKey: c.key,
+        name: `B · ${c.after.name}`,
+        detail: tags.join(" · "),
+        district: c.entity === "district",
+        bounds,
+      });
     }
   }
-  return layer;
+  return { layer, labels };
 }
