@@ -10,6 +10,8 @@ import {
 } from "../domain/model";
 import { service } from "../storage/service";
 import { act, useUI } from "../app/ui";
+import { BuildingCatalog } from "./BuildingCatalog";
+import { BuildingPreview } from "../city/BuildingPreview";
 export function BuildPanel({
   data,
   building,
@@ -30,6 +32,10 @@ export function BuildPanel({
     building?.learningObjectId ?? currentObjectId ?? "",
   );
   const [color, setColor] = useState(building?.color ?? palettes[0]);
+  const [colorText, setColorText] = useState(building?.color ?? palettes[0]);
+  const [previewStage, setPreviewStage] = useState<number | null>(null);
+  const [message, setMessage] = useState("");
+  const [busy, setBusy] = useState(false);
   const [x, setX] = useState(building?.x ?? 20);
   const [y, setY] = useState(building?.y ?? 20);
   const [buildingId] = useState(building?.id ?? id);
@@ -59,7 +65,54 @@ export function BuildPanel({
       ),
   );
   const selectedObject = objects.find((o) => o.id === objectId) ?? objects[0];
+  const actualStage = progress
+    ? (selectedObject?.stage ??
+      data.tracks.find((t) => t.id === trackId)?.stage ??
+      1)
+    : 1;
+  const viewedStage = progress ? (previewStage ?? actualStage) : 1;
+  const validColor = /^#[0-9a-f]{6}$/i.test(colorText.trim());
+  const kinds = (Object.keys(labels.buildings) as BuildingKind[]).filter(
+    (k) =>
+      !building ||
+      Boolean(building.trackId) ===
+        ["workshop", "library", "pavilion"].includes(k),
+  );
+  function changeDraft() {
+    setMessage("");
+    useUI.getState().set({ placement: null });
+  }
+  function chooseColor(value: string) {
+    changeDraft();
+    setColorText(value);
+    if (/^#[0-9a-f]{6}$/i.test(value.trim()))
+      setColor(value.trim().toLowerCase());
+  }
+  function chooseKind(value: BuildingKind) {
+    changeDraft();
+    setKind(value);
+  }
+  async function save(b: Building, text: string) {
+    setMessage("");
+    setBusy(true);
+    try {
+      await service.placeBuilding(b, data.storageEpoch);
+      useUI
+        .getState()
+        .set({
+          buildingId: b.id,
+          objectId: b.learningObjectId ?? null,
+          trackId: b.trackId ?? null,
+          placement: null,
+        });
+      setMessage(text);
+    } finally {
+      setBusy(false);
+    }
+  }
   const candidate = (): Building => {
+    if (!validColor)
+      throw new Error("Введите акцентный цвет в формате #RRGGBB.");
     if (progress && !trackId)
       throw new Error("Выберите направление для здания.");
     const track = data.tracks.find((t) => t.id === trackId);
@@ -100,13 +153,63 @@ export function BuildPanel({
           для изменений.
         </p>
       )}
-      <fieldset disabled={readonly}>
+      <fieldset disabled={readonly || busy}>
         <legend>Архитектура и оформление</legend>
+        <BuildingCatalog
+          kinds={kinds}
+          kind={kind}
+          color={color}
+          stage={viewedStage}
+          onChange={chooseKind}
+        />
+        <section
+          className="building-preview"
+          data-testid="building-preview"
+          aria-label="Примерка выбранного варианта"
+        >
+          <BuildingPreview kind={kind} color={color} stage={viewedStage} />
+          <b>
+            {labels.buildings[kind]} ·{" "}
+            {progress ? `этап ${viewedStage}` : "декор"}
+          </b>
+          {progress && (
+            <>
+              <div
+                className="stage-picker"
+                role="group"
+                aria-label="Просмотр этапов"
+              >
+                {[1, 2, 3].map((stage) => (
+                  <button
+                    type="button"
+                    key={stage}
+                    aria-label={`Посмотреть этап ${stage}`}
+                    aria-pressed={viewedStage === stage}
+                    onClick={() => setPreviewStage(stage)}
+                  >
+                    {stage}
+                  </button>
+                ))}
+              </div>
+              <p
+                className={viewedStage > actualStage ? "future-stage" : "hint"}
+              >
+                {viewedStage > actualStage
+                  ? `Будущий этап ${viewedStage} · только просмотр`
+                  : `Просмотр этапа ${viewedStage}`}
+              </p>
+              <small>
+                На карте — заработанный этап {actualStage}. Примерка не меняет
+                прогресс.
+              </small>
+            </>
+          )}
+        </section>
         <label>
           Тип объекта
           <select
             value={kind}
-            onChange={(e) => setKind(e.target.value as BuildingKind)}
+            onChange={(e) => chooseKind(e.target.value as BuildingKind)}
           >
             {Object.entries(labels.buildings)
               .filter(
@@ -128,7 +231,11 @@ export function BuildPanel({
             <select
               value={trackId}
               disabled={Boolean(building)}
-              onChange={(e) => setTrackId(e.target.value)}
+              onChange={(e) => {
+                changeDraft();
+                setTrackId(e.target.value);
+                setPreviewStage(null);
+              }}
             >
               <option value="">Выберите направление</option>
               {available.map((t) => (
@@ -145,7 +252,11 @@ export function BuildPanel({
             <select
               value={selectedObject?.id ?? ""}
               disabled={Boolean(building)}
-              onChange={(e) => setObjectId(e.target.value)}
+              onChange={(e) => {
+                changeDraft();
+                setObjectId(e.target.value);
+                setPreviewStage(null);
+              }}
             >
               {objects.map((o) => (
                 <option key={o.id} value={o.id}>
@@ -172,12 +283,23 @@ export function BuildPanel({
                   data.tracks.find((t) => t.id === trackId)?.name)
                 : labels.buildings[kind]
             }
-            onChange={(e) => setName(e.target.value)}
+            onChange={(e) => {
+              changeDraft();
+              setName(e.target.value);
+            }}
           />
         </label>
         <label>
           Палитра
-          <select value={color} onChange={(e) => setColor(e.target.value)}>
+          <select
+            value={palettes.includes(color) ? color : "custom"}
+            onChange={(e) => {
+              if (e.target.value !== "custom") chooseColor(e.target.value);
+            }}
+          >
+            {!palettes.includes(color) && (
+              <option value="custom">Свой акцент</option>
+            )}
             {palettes.map((c, i) => (
               <option key={c} value={c}>
                 {["Терракота", "Шалфей", "Синий сланец", "Охра", "Вереск"][i]}
@@ -193,12 +315,45 @@ export function BuildPanel({
               aria-label={`Цвет ${c}`}
               aria-pressed={color === c}
               style={{ background: c }}
-              onClick={() => setColor(c)}
+              onClick={() => chooseColor(c)}
             />
           ))}
         </div>
+        <label>
+          Свой акцент #RRGGBB
+          <input
+            value={colorText}
+            maxLength={7}
+            spellCheck={false}
+            aria-invalid={!validColor}
+            aria-describedby="accent-help"
+            onChange={(e) => chooseColor(e.target.value)}
+          />
+        </label>
+        <p id="accent-help" className={validColor ? "hint" : "field-error"}>
+          {validColor
+            ? "Примерка цвета не сохраняется автоматически."
+            : "Нужны # и шесть цифр 0–9 или букв A–F. Например, #327A91."}
+        </p>
+        <button
+          type="button"
+          className="text-button"
+          onClick={() => {
+            changeDraft();
+            setKind(building?.kind ?? "workshop");
+            setName(building?.name ?? "");
+            setColor(building?.color ?? palettes[0]);
+            setColorText(building?.color ?? palettes[0]);
+            setPreviewStage(null);
+            setX(building?.x ?? 20);
+            setY(building?.y ?? 20);
+          }}
+        >
+          Сбросить примерку
+        </button>
         <button
           className="primary wide"
+          disabled={!validColor}
           onClick={() =>
             void act(async () => {
               useUI.getState().set({
@@ -241,16 +396,11 @@ export function BuildPanel({
             </label>
           </div>
           <button
+            disabled={!validColor}
             onClick={() =>
               void act(async () => {
                 const b = candidate();
-                await service.placeBuilding(b, data.storageEpoch);
-                useUI.getState().set({
-                  buildingId: b.id,
-                  objectId: b.learningObjectId ?? null,
-                  trackId: b.trackId ?? null,
-                  placement: null,
-                });
+                await save(b, "Размещение сохранено. Прогресс не изменён.");
               })
             }
           >
@@ -261,15 +411,16 @@ export function BuildPanel({
           <>
             <button
               className="wide"
+              disabled={!validColor}
               onClick={() =>
                 void act(() =>
-                  service.placeBuilding(
+                  save(
                     {
                       ...candidate(),
                       x: building.x,
                       y: building.y,
                     },
-                    data.storageEpoch,
+                    "Оформление сохранено. Прогресс не изменён.",
                   ),
                 )
               }
@@ -290,6 +441,12 @@ export function BuildPanel({
           </>
         )}
       </fieldset>
+      {busy && <p role="status">Сохраняем планировку…</p>}
+      {message && (
+        <p role="status" className="success">
+          {message}
+        </p>
+      )}
       {placement && (
         <div className="notice">
           Выбран инструмент размещения.{" "}

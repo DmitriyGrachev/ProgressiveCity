@@ -1034,6 +1034,130 @@ small {
   margin: 0;
   min-width: 0;
 }
+.building-catalog {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+  margin: 8px 0 16px;
+}
+.placement-status {
+  position: absolute;
+  top: 112px;
+  left: 22px;
+  max-width: calc(100% - 44px);
+  padding: 9px 12px;
+  border-radius: 7px;
+  background: #fffbeded;
+  color: #354d3d;
+  box-shadow: 0 2px 8px #31422a12;
+  font-size: 12px;
+  pointer-events: none;
+}
+.catalog-card {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  margin: 0;
+  padding: 6px 3px;
+  border: 1px solid #d2dbcd;
+  border-radius: 9px;
+  background: #f4f5ec;
+  cursor: pointer;
+  min-width: 0;
+  text-align: center;
+}
+.catalog-card.selected {
+  border: 2px solid #28654f;
+  padding: 5px 2px;
+  background: #e6eedf;
+}
+.catalog-card:focus-within {
+  outline: 3px solid #8c5c27;
+  outline-offset: 2px;
+}
+.catalog-card input {
+  position: absolute;
+  top: 6px;
+  left: 6px;
+  width: 13px;
+  height: 13px;
+  margin: 0;
+  accent-color: #28654f;
+}
+.catalog-card b {
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+.catalog-card small,
+.catalog-choice {
+  font-size: 10px;
+}
+.catalog-choice {
+  margin-top: 4px;
+  color: #285642;
+}
+.building-thumbnail {
+  display: block;
+  width: 100%;
+  height: 94px;
+  object-fit: contain;
+}
+.thumbnail-loading {
+  display: grid;
+  place-items: center;
+  min-height: 94px;
+  font-size: 11px;
+}
+.building-preview {
+  padding: 12px;
+  border: 1px solid #d2dbcd;
+  border-radius: 10px;
+  background: #f1f3e8;
+  text-align: center;
+  margin: 16px 0;
+}
+.building-preview .building-thumbnail {
+  height: 186px;
+}
+.building-preview .thumbnail-loading {
+  min-height: 186px;
+}
+.building-preview p {
+  margin: 8px 0;
+}
+.building-preview small {
+  display: block;
+}
+.stage-picker {
+  display: flex;
+  gap: 6px;
+  justify-content: center;
+  margin-top: 10px;
+}
+.stage-picker button {
+  min-width: 38px;
+}
+.stage-picker button[aria-pressed="true"] {
+  background: #28654f;
+  color: white;
+}
+.future-stage {
+  color: #744b15;
+  background: #f3e4c5;
+  padding: 7px;
+  border-radius: 6px;
+  font-weight: 600;
+}
+.field-error {
+  color: #8c342d;
+  font-size: 12px;
+}
+@media (max-width: 480px) {
+  .building-catalog {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
 .research-create,
 .research-details details {
   margin: 14px 0;

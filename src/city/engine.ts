@@ -1,10 +1,18 @@
-import { Application, Container, Graphics, Point, Text } from "pixi.js";
+import {
+  Application,
+  Container,
+  Graphics,
+  Point,
+  Rectangle,
+  Text,
+} from "pixi.js";
 import type { Building, CityData, Rect, Snapshot } from "../domain/model";
 import type { CityChange, ComparisonView } from "../domain/comparison";
 import { comparisonArt } from "./comparison-art";
 import { canPlace, gridToIso, isoToGrid, MAP_SIZE } from "../domain/rules";
 import { buildingArt } from "./art";
 import { extendRoad, roadCellState, type Cell } from "../domain/roads";
+import { registerPreviewRenderer } from "./preview-cache";
 const MIN_ZOOM = 0.03;
 export interface SceneInput {
   data: Pick<
@@ -35,6 +43,10 @@ export class CityEngine {
   private ground = new Container();
   private objects = new Container();
   private preview = new Graphics();
+  private ghostLayer = new Container();
+  private ghostArt?: Container;
+  private ghostKey = "";
+  private previewStatus = document.createElement("div");
   private comparisonLayer = new Container();
   private normalCamera?: {
     x: number;
@@ -62,6 +74,7 @@ export class CityEngine {
   private ghost?: Building;
   private stroke?: { cells: Map<string, Cell>; last: Cell };
   private saving = false;
+  private unregisterPreviews?: () => void;
   private host: HTMLDivElement;
   private callbacks: SceneCallbacks;
   constructor(host: HTMLDivElement, callbacks: SceneCallbacks) {
@@ -84,13 +97,51 @@ export class CityEngine {
       return;
     }
     this.initialized = true;
+    this.unregisterPreviews = registerPreviewRenderer(
+      async ({ kind, color, stage }) => {
+        const progress = ["workshop", "library", "pavilion"].includes(kind);
+        const size = progress || ["park", "plaza"].includes(kind) ? 2 : 1;
+        const art = buildingArt(
+          {
+            id: "preview",
+            name: "",
+            x: 0,
+            y: 0,
+            w: size,
+            h: size,
+            kind,
+            color,
+            ...(progress ? { trackId: "preview" } : {}),
+          },
+          stage,
+          false,
+          false,
+        );
+        try {
+          return await this.app.renderer.extract.base64({
+            target: art.container,
+            frame: new Rectangle(-80, -100, 160, 170),
+            resolution: 2,
+            antialias: true,
+          });
+        } finally {
+          art.container.destroy({ children: true, context: true });
+        }
+      },
+    );
     this.host.appendChild(this.app.canvas);
+    this.previewStatus.className = "placement-status";
+    this.previewStatus.setAttribute("role", "status");
+    this.previewStatus.setAttribute("data-testid", "placement-status");
+    this.previewStatus.hidden = true;
+    this.host.appendChild(this.previewStatus);
     this.app.canvas.setAttribute("aria-label", "Интерактивная карта города");
     this.app.canvas.tabIndex = 0;
     this.world.addChild(
       this.ground,
       this.objects,
       this.comparisonLayer,
+      this.ghostLayer,
       this.preview,
     );
     this.app.stage.addChild(this.world);
@@ -176,10 +227,12 @@ export class CityEngine {
       old?.data.storageEpoch !== input.data.storageEpoch
     )
       this.cancelGesture();
-    this.objects.removeChildren().forEach((c) => c.destroy({ children: true }));
+    this.objects
+      .removeChildren()
+      .forEach((c) => c.destroy({ children: true, context: true }));
     this.comparisonLayer
       .removeChildren()
-      .forEach((c) => c.destroy({ children: true }));
+      .forEach((c) => c.destroy({ children: true, context: true }));
     this.hits = [];
     const buildings = input.snapshot?.buildings ?? input.data.buildings;
     const districts = input.snapshot?.districts ?? input.data.districts;
@@ -240,17 +293,30 @@ export class CityEngine {
     if (!input.placement) {
       this.preview.clear();
       this.ghost = undefined;
+      this.clearGhost();
+      this.placementMessage("");
     } else if (this.stroke) this.drawRoad([...this.stroke.cells.values()]);
     else if (this.ghost) this.drawPreview(this.ghost.x, this.ghost.y);
     this.render();
     if (
       old &&
+      !old.snapshot &&
       !input.snapshot &&
+      old.data.storageEpoch === input.data.storageEpoch &&
       !input.data.city?.reducedMotion &&
       !matchMedia("(prefers-reduced-motion: reduce)").matches
     ) {
       const upgraded = input.data.buildings.find((b) => {
-        if (!old.data.buildings.some((p) => p.id === b.id)) return true;
+        if (
+          !b.trackId ||
+          !old.data.buildings.some(
+            (p) =>
+              p.id === b.id &&
+              p.trackId === b.trackId &&
+              p.learningObjectId === b.learningObjectId,
+          )
+        )
+          return false;
         if (b.learningObjectId) {
           const stage =
             input.data.learningObjects.find((o) => o.id === b.learningObjectId)
@@ -384,6 +450,8 @@ export class CityEngine {
     this.stroke = undefined;
     this.ghost = undefined;
     this.preview.clear();
+    this.clearGhost();
+    this.placementMessage("");
     if (pointerId !== undefined && this.host.hasPointerCapture(pointerId))
       this.host.releasePointerCapture(pointerId);
     if (this.initialized) {
@@ -421,6 +489,7 @@ export class CityEngine {
   }
   private drawRoad(cells: Cell[]) {
     this.preview.clear();
+    if (this.ghostArt) this.ghostArt.visible = false;
     let valid = true;
     for (const cell of cells) {
       const state = roadCellState(cell, this.input!.data.buildings);
@@ -436,7 +505,13 @@ export class CityEngine {
         .poly([p.x, p.y, p.x + 32, p.y + 16, p.x, p.y + 32, p.x - 32, p.y + 16])
         .fill({ color, alpha: 0.55 })
         .stroke({ color, width: 2 });
+      if (state === "blocked") this.blockedCross(p.x, p.y + 16, 10);
     }
+    this.placementMessage(
+      valid
+        ? `Дорога · ${cells.length} клеток · отпустите для сохранения`
+        : "× Дорогу нельзя построить: место занято или край карты. Измените маршрут.",
+    );
     this.app.canvas.dataset.placementValid = String(valid);
     this.app.canvas.dataset.roadCells = String(cells.length);
     this.render();
@@ -520,6 +595,28 @@ export class CityEngine {
     const valid = canPlace(this.ghost, this.input!.data.buildings, b.id);
     const p = gridToIso(x, y);
     const s = b.w * 32;
+    const stage =
+      (b.learningObjectId
+        ? this.input!.data.learningObjects.find(
+            (o) => o.id === b.learningObjectId,
+          )?.stage
+        : this.input!.data.tracks.find((t) => t.id === b.trackId)?.stage) ?? 1;
+    const key = `${b.kind}:${b.color}:${b.w}:${b.h}:${Boolean(b.trackId)}:${stage}`;
+    if (this.ghostKey !== key || !this.ghostArt) {
+      this.clearGhost();
+      this.ghostArt = buildingArt(
+        { ...b, x: 0, y: 0 },
+        stage,
+        false,
+        false,
+      ).container;
+      this.ghostArt.alpha = 0.58;
+      this.ghostArt.eventMode = "none";
+      this.ghostLayer.addChild(this.ghostArt);
+      this.ghostKey = key;
+    }
+    this.ghostArt.visible = true;
+    this.ghostArt.position.set(p.x, p.y);
     this.preview
       .clear()
       .poly([
@@ -532,11 +629,34 @@ export class CityEngine {
         p.x - s,
         p.y + s / 2,
       ])
-      .fill({ color: valid ? "#317c60" : "#c34f46", alpha: 0.5 })
+      .fill({ color: valid ? "#317c60" : "#c34f46", alpha: 0.12 })
       .stroke({ color: valid ? "#195b41" : "#a42e2a", width: 3 });
+    if (!valid) this.blockedCross(p.x, p.y + s / 2, 15);
+    const outside = x < 0 || y < 0 || x + b.w > MAP_SIZE || y + b.h > MAP_SIZE;
+    this.placementMessage(
+      `${b.trackId ? `Этап ${stage} · ` : ""}${valid ? "✓ Можно разместить · нажмите на карту" : outside ? "× За пределами карты" : "× Место занято"}`,
+    );
     this.app.canvas.dataset.placementValid = String(valid);
     this.app.canvas.dataset.cell = `${x},${y}`;
     this.render();
+  }
+  private blockedCross(x: number, y: number, radius: number) {
+    this.preview
+      .moveTo(x - radius, y - radius / 2)
+      .lineTo(x + radius, y + radius / 2)
+      .moveTo(x + radius, y - radius / 2)
+      .lineTo(x - radius, y + radius / 2)
+      .stroke({ color: "#702a24", width: 4 });
+  }
+  private clearGhost() {
+    this.ghostArt?.destroy({ children: true, context: true });
+    this.ghostArt = undefined;
+    this.ghostKey = "";
+  }
+  private placementMessage(text: string) {
+    if (this.previewStatus.textContent !== text)
+      this.previewStatus.textContent = text;
+    this.previewStatus.hidden = !text;
   }
   private wheel = (e: WheelEvent) => {
     e.preventDefault();
@@ -564,6 +684,8 @@ export class CityEngine {
   };
   destroy() {
     this.disposed = true;
+    this.unregisterPreviews?.();
+    this.previewStatus.remove();
     this.observer?.disconnect();
     if (this.animation) cancelAnimationFrame(this.animation);
     this.host.removeEventListener("pointerdown", this.down);
@@ -574,6 +696,7 @@ export class CityEngine {
     this.host.removeEventListener("wheel", this.wheel);
     this.host.removeEventListener("contextmenu", this.context);
     this.host.removeEventListener("keydown", this.key);
-    if (this.initialized) this.app.destroy(true, { children: true });
+    if (this.initialized)
+      this.app.destroy(true, { children: true, context: true });
   }
 }

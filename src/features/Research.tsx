@@ -267,6 +267,7 @@ export function DevelopmentChoice({
     if (working.current) return;
     working.current = true;
     setBusy(true);
+    setMessage("");
     const key = `${object.id}:${object.built ? object.stage : "construction"}`;
     const command = commands.current.get(key) ?? id();
     commands.current.set(key, command);

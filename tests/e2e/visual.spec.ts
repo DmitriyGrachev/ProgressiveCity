@@ -1,7 +1,7 @@
 import { test, expect } from "@playwright/test";
 import { createCity } from "./helpers";
 import { clickCell, rows } from "./helpers";
-import type { Building } from "../../src/domain/model";
+import type { Building, Snapshot } from "../../src/domain/model";
 import { mkdir } from "node:fs/promises";
 import path from "node:path";
 
@@ -108,6 +108,14 @@ test("synthetic architecture gallery renders all three templates and stages with
   await page.screenshot({
     path: path.join(folder, "architecture-gallery.png"),
   });
+  await page.screenshot({
+    path: path.join(folder, "constructor-architecture.png"),
+  });
+  for (let i = 0; i < 3; i++)
+    await page.getByRole("button", { name: "Отдалить", exact: true }).click();
+  await page.screenshot({ path: path.join(folder, "constructor-distant.png") });
+  for (let i = 0; i < 3; i++)
+    await page.getByRole("button", { name: "Приблизить", exact: true }).click();
   await page.getByRole("button", { name: "Библиотека 3", exact: true }).click();
   await page
     .getByRole("button", { name: "Найти на карте", exact: true })
@@ -120,6 +128,60 @@ test("synthetic architecture gallery renders all three templates and stages with
     page.getByText("Исторический город · только просмотр"),
   ).toBeVisible();
   await page.screenshot({ path: path.join(folder, "history.png") });
+  await page
+    .getByRole("button", { name: "Текущий город", exact: true })
+    .click();
+  await page.evaluate(async () => {
+    const path = "/src/storage/service.ts";
+    const { service } = (await import(
+      path
+    )) as typeof import("../../src/storage/service");
+    const all = await service.db.buildings.toArray();
+    const buildings = all.filter((b) => b.trackId);
+    for (const b of all) await service.removeBuilding(b.id);
+    for (let i = 0; i < buildings.length; i++)
+      await service.placeBuilding({
+        ...buildings[i],
+        x: 17 + (i % 3) * 2,
+        y: 17 + Math.floor(i / 3) * 2,
+      });
+    await service.snapshot("Плотный квартал · синтетические данные");
+  });
+  await page.getByRole("button", { name: "Библиотека 2", exact: true }).click();
+  await page
+    .getByRole("button", { name: "Найти на карте", exact: true })
+    .click();
+  await page
+    .getByRole("button", { name: "Закрыть панель", exact: true })
+    .click();
+  await expect(page.locator("canvas")).toHaveAttribute(
+    "data-building-count",
+    "9",
+  );
+  await page.screenshot({ path: path.join(folder, "constructor-dense.png") });
+  await page.getByRole("button", { name: "История", exact: true }).click();
+  const snapshots = await rows<Snapshot>(page, "snapshots");
+  await page
+    .getByRole("combobox", { name: "A — было", exact: true })
+    .selectOption(
+      snapshots.find((s) => s.name.startsWith("Архитектурная проверка"))!.id,
+    );
+  await page
+    .getByRole("button", { name: "Сравнить город", exact: true })
+    .click();
+  await expect(page.locator("canvas")).toHaveAttribute(
+    "data-comparison-view",
+    "changes",
+  );
+  await page
+    .getByRole("button", { name: "Фокус на изменениях", exact: true })
+    .click();
+  await page.screenshot({
+    path: path.join(folder, "constructor-comparison.png"),
+  });
+  await expect(
+    page.getByRole("button", { name: "Строить", exact: true }),
+  ).toBeDisabled();
   expect(errors).toEqual([]);
 });
 test("decor palette changes actual rendered pixels and persists on reload", async ({
