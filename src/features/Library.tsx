@@ -7,6 +7,7 @@ export function Library({ data }: { data: CityData }) {
   const [trackId, setTrackId] = useState("");
   const [tag, setTag] = useState("");
   const noteId = useUI((s) => s.noteId);
+  const workView = useUI((s) => s.workView);
   const note = data.notes.find((n) => n.id === noteId);
   const notes = data.notes.filter(
     (n) =>
@@ -96,7 +97,13 @@ export function Library({ data }: { data: CityData }) {
             {building ? (
               <button
                 onClick={() =>
-                  void navigate({ focus: building.id, buildingId: building.id })
+                  void navigate({
+                    focus: building.id,
+                    buildingId: building.id,
+                    ...(workView
+                      ? { panel: null, noteId: null, resultRequest: null }
+                      : {}),
+                  })
                 }
               >
                 К зданию

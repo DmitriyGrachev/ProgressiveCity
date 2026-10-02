@@ -27,6 +27,7 @@ interface UI {
   focus: string | null;
   error: string;
   transitioning: boolean;
+  workView: boolean;
   set: (patch: Partial<Omit<UI, "set">>) => void;
 }
 export const useUI = create<UI>((set) => ({
@@ -48,6 +49,7 @@ export const useUI = create<UI>((set) => ({
   focus: null,
   error: "",
   transitioning: false,
+  workView: false,
   set,
 }));
 let flushEditor: (() => Promise<void>) | null = null;
@@ -64,7 +66,14 @@ export async function navigate(patch: Partial<Omit<UI, "set">>) {
   )
     return;
   await transition(async () => {
-    useUI.getState().set({ ...patch, error: "" });
+    const leaveWork =
+      patch.snapshotId ||
+      (patch.panel !== undefined &&
+        patch.panel !== "track" &&
+        patch.panel !== "library");
+    useUI
+      .getState()
+      .set({ ...patch, ...(leaveWork ? { workView: false } : {}), error: "" });
   });
 }
 export async function transition(action: () => Promise<void>) {

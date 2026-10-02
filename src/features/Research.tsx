@@ -3,6 +3,7 @@ import type { CityData, LearningObject, Track } from "../domain/model";
 import { id } from "../domain/model";
 import { act, navigate, transition, useUI } from "../app/ui";
 import { service } from "../storage/service";
+import { researchContext } from "../domain/continuation";
 
 export function ResearchPicker({
   data,
@@ -110,9 +111,7 @@ export function ResearchDetails({
     invalidated ||
     base.object.name !== object.name ||
     base.object.nextQuestion !== object.nextQuestion;
-  const latest = data.activities
-    .filter((a) => a.learningObjectId === object.id && a.confirmed)
-    .sort((a, b) => b.createdAt.localeCompare(a.createdAt))[0];
+  const latest = researchContext(data, object.id).latestResult?.activity;
   const growth = data.events
     .filter(
       (e) =>
@@ -131,6 +130,40 @@ export function ResearchDetails({
         <p className="hint">
           <b>Следующий вопрос:</b> {object.nextQuestion}
         </p>
+      )}
+      {latest && latest.noteIds.length > 0 && (
+        <div className="result-materials">
+          <p className="hint">
+            Материалы последнего подтверждённого результата:
+          </p>
+          {latest.noteIds.map((noteId) => {
+            const note = data.notes.find(
+              (n) =>
+                n.id === noteId &&
+                n.learningObjectId === object.id &&
+                n.trackId === object.trackId,
+            );
+            return (
+              note && (
+                <button
+                  className="text-button"
+                  key={note.id}
+                  onClick={() =>
+                    void navigate({
+                      panel: "track",
+                      trackId: object.trackId,
+                      objectId: object.id,
+                      noteId: note.id,
+                      resultRequest: null,
+                    })
+                  }
+                >
+                  Материал «{note.title}»
+                </button>
+              )
+            );
+          })}
+        </div>
       )}
       <details>
         <summary>Вопрос и название исследования</summary>

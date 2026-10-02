@@ -12,6 +12,7 @@ import { localDate } from "../domain/rules";
 import { service } from "../storage/service";
 import { act, flushNotes, type ResultRequest } from "../app/ui";
 import { DevelopmentChoice } from "./Research";
+import { NextQuestionForm } from "./NextQuestionForm";
 export function ActivityForm({
   data,
   track,
@@ -246,9 +247,16 @@ export function ActivityForm({
       </div>
       {confirmed && (
         <p className="hint success">
-          Запись подтверждена. Дополнения и архивирование сохраняют прежнее
-          начисление.
+          {habit ? "Запись подтверждена." : "Результат подтверждён."} Дополнения
+          и архивирование сохраняют прежнее начисление.
         </p>
+      )}
+      {confirmed && object && !invalidated && (
+        <NextQuestionForm
+          key={`${object.id}-${savedId.current}`}
+          object={object}
+          epoch={initialEpoch}
+        />
       )}
       {confirmed && object && !invalidated && (
         <DevelopmentChoice

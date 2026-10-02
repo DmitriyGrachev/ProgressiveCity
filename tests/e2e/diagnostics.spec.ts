@@ -66,6 +66,16 @@ test("does not open old notes with the replacement epoch while note subscription
   await page.evaluate(() =>
     (window as unknown as { releaseNoteRead: () => void }).releaseNoteRead(),
   );
+  // Replacement now clears the selected context; reopen the library explicitly.
+  await expect(page.locator(".detail-panel")).toHaveCount(0);
+  await expect(page.locator(".note-editor")).toHaveCount(0);
+  await expect(
+    page.getByRole("button", { name: "Библиотека", exact: true }),
+  ).toBeVisible();
+  await page.getByRole("button", { name: "Библиотека", exact: true }).click();
+  await expect(
+    page.getByRole("button", { name: "Локальный материал", exact: true }),
+  ).toHaveCount(0);
   await expect(
     page.getByRole("button", { name: "Материал из архива", exact: true }),
   ).toBeVisible();

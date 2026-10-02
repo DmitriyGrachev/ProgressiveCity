@@ -423,8 +423,13 @@ export class CityService {
       return snapshot;
     });
   }
-  async createNote(trackId: string, learningObjectId?: string): Promise<Note> {
+  async createNote(
+    trackId: string,
+    learningObjectId?: string,
+    expectedEpoch?: string,
+  ): Promise<Note> {
     return this.transaction(async () => {
+      await this.checkEpoch(expectedEpoch);
       const object = await this.objectFor(
         await this.track(trackId),
         learningObjectId,

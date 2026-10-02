@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useCityData } from "./use-city-data";
 import { service } from "../storage/service";
 import { act, navigate, useUI, type Panel } from "./ui";
@@ -14,6 +14,8 @@ import { InitialRestore } from "../features/InitialRestore";
 import { RecoveryTray } from "../notes/recovery";
 import { ComparisonPanel } from "../features/ComparisonPanel";
 import { exitComparison } from "./comparison";
+import { ContinuePanel } from "../features/ContinuePanel";
+import { setWorkView } from "./research";
 
 function Onboarding() {
   const [name, setName] = useState("Мой город");
@@ -127,7 +129,31 @@ export function App() {
   const objectId = useUI((s) => s.objectId);
   const error = useUI((s) => s.error);
   const comparison = useUI((s) => s.comparison);
+  const snapshotId = useUI((s) => s.snapshotId);
+  const workView = useUI((s) => s.workView);
   const epoch = data?.storageEpoch;
+  const previousEpoch = useRef(epoch);
+  useEffect(() => {
+    if (!epoch) return;
+    if (previousEpoch.current && previousEpoch.current !== epoch) {
+      const state = useUI.getState();
+      state.set({
+        trackId: null,
+        objectId: null,
+        noteId: null,
+        buildingId: null,
+        resultRequest: null,
+        focus: null,
+        workView: false,
+        snapshotId: null,
+        placement: null,
+        ...(["track", "library"].includes(state.panel ?? "")
+          ? { panel: null }
+          : {}),
+      });
+    }
+    previousEpoch.current = epoch;
+  }, [epoch]);
   useEffect(() => {
     if (comparison && epoch && comparison.scene.storageEpoch !== epoch)
       exitComparison();
@@ -182,7 +208,9 @@ export function App() {
       </header>
       {errorBanner}
       <RecoveryTray />
-      <div className={`workspace ${panel ? "panel-open" : ""}`}>
+      <div
+        className={`workspace ${panel ? "panel-open" : ""} ${workView && !snapshotId && !comparison ? "work-view" : ""}`}
+      >
         <aside className="sidebar">
           <nav aria-label="Основная навигация">
             {navigation.map((n) => (
@@ -273,9 +301,38 @@ export function App() {
             </button>
           </div>
         </aside>
-        <CityCanvas />
+        <main className="city-stage">
+          <ContinuePanel
+            data={data}
+            hidden={Boolean(panel || snapshotId || comparison)}
+          />
+          <CityCanvas />
+        </main>
         {panel && (
           <aside className="detail-panel" aria-label="Панель города">
+            {workView && !snapshotId && !comparison && (
+              <div className="work-view-bar">
+                <span className="eyebrow">Рабочий вид</span>
+                <div className="row wrap">
+                  <button
+                    onClick={() => void setWorkView(false, data.storageEpoch)}
+                  >
+                    Свернуть рабочий вид
+                  </button>
+                  <button
+                    onClick={() =>
+                      void navigate({
+                        panel: null,
+                        noteId: null,
+                        resultRequest: null,
+                      })
+                    }
+                  >
+                    Вернуться в город
+                  </button>
+                </div>
+              </div>
+            )}
             <button
               className="close-panel"
               aria-label="Закрыть панель"

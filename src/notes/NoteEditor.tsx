@@ -8,6 +8,7 @@ import { service } from "../storage/service";
 import { addAttachment } from "../storage/attachments";
 import {
   act,
+  flushNotes,
   navigate,
   registerEditor,
   reportError,
@@ -17,6 +18,7 @@ import {
 import { SaveSession, type SaveStatus } from "./save-session";
 import { AttachmentNode, AttachmentCache } from "./AttachmentNode";
 import { retainDraft, type LocalDraft } from "./recovery";
+import { setWorkView } from "../app/research";
 
 export function NoteEditor({ note, epoch }: { note: Note; epoch: string }) {
   const [status, setStatus] = useState<SaveStatus>("Сохранено");
@@ -28,6 +30,8 @@ export function NoteEditor({ note, epoch }: { note: Note; epoch: string }) {
   const [link, setLink] = useState("");
   const [uploading, setUploading] = useState(false);
   const pendingUpload = useRef<Promise<void> | null>(null);
+  const failedUpload = useRef<{ file: File; inserted: boolean } | null>(null);
+  const [uploadFailed, setUploadFailed] = useState(false);
   const pendingCopy = useRef<Promise<void> | null>(null);
   const ready = useRef<Promise<void> | null>(null);
   const [cacheReady, setCacheReady] = useState(false);
@@ -46,6 +50,7 @@ export function NoteEditor({ note, epoch }: { note: Note; epoch: string }) {
   }));
   const readonly = useUI((s) => Boolean(s.snapshotId || s.comparison));
   const transitioning = useUI((s) => s.transitioning);
+  const workView = useUI((s) => s.workView);
   const locked =
     readonly || transitioning || copying || invalidated || !cacheReady;
   const editor = useEditor({
@@ -54,7 +59,12 @@ export function NoteEditor({ note, epoch }: { note: Note; epoch: string }) {
     editable: !locked,
     enableContentCheck: true,
     editorProps: {
-      attributes: { "aria-label": "Текст заметки", spellcheck: "true" },
+      attributes: {
+        "aria-label": "Текст заметки",
+        role: "textbox",
+        "aria-multiline": "true",
+        spellcheck: "true",
+      },
     },
     onUpdate: ({ editor }) =>
       session.update({ doc: editor.getJSON(), text: editor.getText() }),
@@ -96,7 +106,8 @@ export function NoteEditor({ note, epoch }: { note: Note; epoch: string }) {
   useEffect(() => {
     if (invalidated) {
       session.dispose();
-      if (session.dirty || pendingUpload.current) retainDraft(local);
+      if (session.dirty || pendingUpload.current || failedUpload.current)
+        retainDraft(local);
     }
   }, [invalidated, local, session]);
   useEffect(() => {
@@ -104,14 +115,23 @@ export function NoteEditor({ note, epoch }: { note: Note; epoch: string }) {
       await pendingCopy.current;
       await pendingUpload.current;
       if ((await db.metadata.get("epoch"))?.value !== initialEpoch) {
-        if (session.dirty) retainDraft(local);
+        if (session.dirty || failedUpload.current) retainDraft(local);
         return;
       }
+      if (failedUpload.current)
+        throw new Error(
+          "Изображение не сохранено. Повторите загрузку или отмените её.",
+        );
       await session.flush();
     };
     const unregister = registerEditor(flush);
     const beforeUnload = (e: BeforeUnloadEvent) => {
-      if (session.dirty || pendingUpload.current || pendingCopy.current) {
+      if (
+        session.dirty ||
+        pendingUpload.current ||
+        pendingCopy.current ||
+        failedUpload.current
+      ) {
         e.preventDefault();
         e.returnValue = "";
       }
@@ -125,7 +145,8 @@ export function NoteEditor({ note, epoch }: { note: Note; epoch: string }) {
     return () => {
       unregister();
       session.dispose();
-      if (session.dirty || pendingUpload.current) retainDraft(local);
+      if (session.dirty || pendingUpload.current || failedUpload.current)
+        retainDraft(local);
       window.removeEventListener("beforeunload", beforeUnload);
       document.removeEventListener("visibilitychange", onVisibility);
     };
@@ -133,33 +154,47 @@ export function NoteEditor({ note, epoch }: { note: Note; epoch: string }) {
   useEffect(() => {
     editor?.setEditable(!locked, false);
   }, [editor, locked]);
-  async function upload(file?: File) {
+  async function upload(file?: File, inserted = false) {
     if (!file || !editor) return;
     setUploading(true);
     try {
-      const a = await addAttachment(db, file, initialEpoch, (a) =>
-        local.attachments.set(a.id, a),
-      );
-      editor
-        .chain()
-        .focus()
-        .insertContent([
-          {
-            type: "attachmentImage",
-            attrs: { attachmentId: a.id, alt: file.name },
-          },
-          { type: "paragraph" },
-        ])
-        .focus("end")
-        .run();
+      if (!inserted) {
+        const a = await addAttachment(db, file, initialEpoch, (a) =>
+          local.attachments.set(a.id, a),
+        );
+        editor
+          .chain()
+          .focus()
+          .insertContent([
+            {
+              type: "attachmentImage",
+              attrs: { attachmentId: a.id, alt: file.name },
+            },
+            { type: "paragraph" },
+          ])
+          .focus("end")
+          .run();
+        inserted = true;
+      }
       await session.flush();
+      failedUpload.current = null;
+      setUploadFailed(false);
+      useUI.getState().set({ error: "" });
     } catch (e) {
+      failedUpload.current = { file, inserted };
+      setUploadFailed(true);
       reportError(e);
       if ((await db.metadata.get("epoch"))?.value !== initialEpoch)
         retainDraft(local);
     } finally {
       setUploading(false);
     }
+  }
+  function startUpload(file?: File, inserted = false) {
+    if (!file || pendingUpload.current) return;
+    pendingUpload.current = upload(file, inserted).finally(() => {
+      pendingUpload.current = null;
+    });
   }
   async function saveCopy() {
     if (pendingCopy.current || locked) return;
@@ -168,11 +203,18 @@ export function NoteEditor({ note, epoch }: { note: Note; epoch: string }) {
     let savedId: string | undefined;
     pendingCopy.current = (async () => {
       await pendingUpload.current;
+      if (failedUpload.current && !failedUpload.current.inserted)
+        throw new Error(
+          "Сначала повторите загрузку изображения или явно отмените её.",
+        );
       await session.settle();
       const draft = session.draft;
       const saved = await service.copyNote(draft, initialEpoch);
       session.acceptSavedCopy(saved, draft);
       await session.flush();
+      // The successfully saved copy already contains the inserted image.
+      failedUpload.current = null;
+      setUploadFailed(false);
       savedId = saved.id;
     })();
     try {
@@ -185,6 +227,11 @@ export function NoteEditor({ note, epoch }: { note: Note; epoch: string }) {
   }
   return (
     <section className="note-editor">
+      {!readonly && !workView && (
+        <button onClick={() => void setWorkView(true, initialEpoch)}>
+          Рабочий вид
+        </button>
+      )}
       <div className="row spread">
         <span className="eyebrow">Материал</span>
         <span
@@ -246,13 +293,9 @@ export function NoteEditor({ note, epoch }: { note: Note; epoch: string }) {
                   aria-label="Добавить изображение"
                   type="file"
                   accept="image/png,image/jpeg,image/webp"
-                  disabled={uploading}
+                  disabled={uploading || uploadFailed}
                   onChange={(e) => {
-                    pendingUpload.current = upload(e.target.files?.[0]).finally(
-                      () => {
-                        pendingUpload.current = null;
-                      },
-                    );
+                    startUpload(e.target.files?.[0]);
                     e.target.value = "";
                   }}
                 />
@@ -306,11 +349,37 @@ export function NoteEditor({ note, epoch }: { note: Note; epoch: string }) {
         </label>
         {!readonly && (
           <>
+            {uploadFailed && (
+              <div className="notice" role="alert">
+                Изображение не сохранено. Переход приостановлен; можно повторить
+                загрузку.
+                <div className="row wrap">
+                  <button
+                    disabled={uploading}
+                    onClick={() => {
+                      const failed = failedUpload.current;
+                      if (failed) startUpload(failed.file, failed.inserted);
+                    }}
+                  >
+                    Повторить загрузку изображения
+                  </button>
+                  <button
+                    disabled={uploading}
+                    onClick={() => {
+                      failedUpload.current = null;
+                      setUploadFailed(false);
+                    }}
+                  >
+                    Отменить повтор загрузки
+                  </button>
+                </div>
+              </div>
+            )}
             <div className="row wrap">
               <button
                 className="primary"
                 disabled={uploading}
-                onClick={() => void act(() => session.flush())}
+                onClick={() => void act(flushNotes)}
               >
                 Сохранить заметку
               </button>

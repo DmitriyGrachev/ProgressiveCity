@@ -18,6 +18,7 @@ export async function startComparison(
       );
     useUI.getState().set({
       comparison,
+      workView: false,
       snapshotId: null,
       comparisonView: "changes",
       comparisonSelection: null,

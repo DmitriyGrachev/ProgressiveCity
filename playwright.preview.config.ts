@@ -11,8 +11,9 @@ export default defineConfig({
     "comparison.spec.ts",
     "constructor.spec.ts",
     "readability.spec.ts",
+    "continuation.spec.ts",
   ],
-  grep: /city, material|old city grows|preserves an oversized|rejects a legacy archive|convenient planning|roads reject|note undo|compare city on one canvas|equal saved states|current comparison only|comparison cancels|comparison focus|visual constructor|readable city:/,
+  grep: /city, material|old city grows|preserves an oversized|rejects a legacy archive|convenient planning|roads reject|note undo|compare city on one canvas|equal saved states|current comparison only|comparison cancels|comparison focus|visual constructor|readable city:|continue research:/,
   use: { ...base.use, baseURL: "http://127.0.0.1:4174" },
   webServer: {
     command:
