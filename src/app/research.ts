@@ -48,25 +48,29 @@ export async function continueResearch(objectId: string, epoch: string) {
     );
     if (historical() || (await db.metadata.get("epoch"))?.value !== epoch)
       return;
-    useUI
-      .getState()
-      .set({
-        ...target,
-        panel: "track",
-        workView: true,
-        resultRequest: null,
-        focus: null,
-        placement: null,
-        error: "",
-      });
+    useUI.getState().set({
+      ...target,
+      panel: "track",
+      workView: true,
+      resultRequest: null,
+      dayRequest: null,
+      focus: null,
+      placement: null,
+      error: "",
+    });
   });
 }
 export async function setWorkView(expanded: boolean, epoch: string) {
   if (historical()) return;
-  await transition(async () => {
-    if ((await db.metadata.get("epoch"))?.value !== epoch)
-      throw new Error("Город заменён. Откройте материал заново.");
-    if (!historical())
-      useUI.getState().set({ workView: expanded, placement: null, error: "" });
-  });
+  await transition(
+    async () => {
+      if ((await db.metadata.get("epoch"))?.value !== epoch)
+        throw new Error("Город заменён. Откройте материал заново.");
+      if (!historical())
+        useUI
+          .getState()
+          .set({ workView: expanded, placement: null, error: "" });
+    },
+    { forms: false },
+  );
 }

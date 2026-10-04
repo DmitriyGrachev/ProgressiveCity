@@ -2,20 +2,45 @@ import { useEffect, useRef, useState } from "react";
 import { useCityData } from "./use-city-data";
 import { service } from "../storage/service";
 import { act, navigate, useUI, type Panel } from "./ui";
+import { lazyFeature } from "./lazy-feature";
 import { CityCanvas } from "../city/CityCanvas";
+import { optionalModule } from "./optional-module";
 import { TrackPanel } from "../features/TrackPanel";
 import { TrackForm } from "../features/TrackForm";
 import { Library } from "../features/Library";
-import { BuildPanel } from "../features/BuildPanel";
 import { Districts } from "../features/Districts";
 import { History } from "../features/History";
-import { Settings } from "../features/Settings";
 import { InitialRestore } from "../features/InitialRestore";
 import { RecoveryTray } from "../notes/recovery";
 import { ComparisonPanel } from "../features/ComparisonPanel";
 import { exitComparison } from "./comparison";
 import { ContinuePanel } from "../features/ContinuePanel";
 import { setWorkView } from "./research";
+import { SearchPalette } from "../features/SearchPalette";
+import { TodayPanel } from "../features/TodayPanel";
+import { QuickBackup } from "../features/QuickBackup";
+const BuildPanel = lazyFeature(
+  async () => ({
+    default: (
+      await optionalModule(
+        "src/features/BuildPanel.tsx",
+        () => import("../features/BuildPanel"),
+      )
+    ).BuildPanel,
+  }),
+  "каталога",
+);
+const Settings = lazyFeature(
+  async () => ({
+    default: (
+      await optionalModule(
+        "src/features/Settings.tsx",
+        () => import("../features/Settings"),
+      )
+    ).Settings,
+  }),
+  "настроек",
+);
 
 function Onboarding() {
   const [name, setName] = useState("Мой город");
@@ -143,6 +168,7 @@ export function App() {
         noteId: null,
         buildingId: null,
         resultRequest: null,
+        dayRequest: null,
         focus: null,
         workView: false,
         snapshotId: null,
@@ -201,6 +227,7 @@ export function App() {
           <span>Progress City</span>
         </button>
         <span className="topbar-subtitle">Место для того, чему вы учитесь</span>
+        <SearchPalette key={data.storageEpoch} data={data} />
         <span className="local-badge">
           <span />
           Сохранение на устройстве
@@ -291,7 +318,18 @@ export function App() {
             Архив направлений
           </label>
           <div className="sidebar-footer">
+            <QuickBackup />
             <span>Ваши материалы — ваш путь.</span>
+            {document
+              .querySelector('meta[name="progress-city-build"]')
+              ?.getAttribute("content") && (
+              <small>
+                Сборка{" "}
+                {document
+                  .querySelector('meta[name="progress-city-build"]')
+                  ?.getAttribute("content")}
+              </small>
+            )}
             <button
               className="text-button"
               disabled={Boolean(comparison)}
@@ -302,10 +340,19 @@ export function App() {
           </div>
         </aside>
         <main className="city-stage">
-          <ContinuePanel
-            data={data}
+          <div
+            className="daily-panels"
             hidden={Boolean(panel || snapshotId || comparison)}
-          />
+          >
+            <ContinuePanel
+              data={data}
+              hidden={Boolean(panel || snapshotId || comparison)}
+            />
+            <TodayPanel
+              data={data}
+              hidden={Boolean(panel || snapshotId || comparison)}
+            />
+          </div>
           <CityCanvas />
         </main>
         {panel && (

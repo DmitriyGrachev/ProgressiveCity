@@ -14,7 +14,12 @@
     "typecheck": "tsc --noEmit",
     "test:unit": "vitest run",
     "test:e2e": "playwright test",
-    "test:preview": "playwright test --config playwright.preview.config.ts"
+    "test:preview": "playwright test --config playwright.preview.config.ts",
+    "test:launcher": "node --test tests/launcher/*.test.mjs",
+    "pretest:e2e": "node scripts/daily-fixture.mjs",
+    "pretest:preview": "node scripts/daily-fixture.mjs && node scripts/check-build-graph.mjs",
+    "pretest:launcher": "node scripts/daily-fixture.mjs",
+    "perf:report": "node scripts/perf-report.mjs"
   },
   "dependencies": {
     "@tiptap/core": "3.31.3",

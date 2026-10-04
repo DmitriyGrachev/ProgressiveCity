@@ -5,7 +5,6 @@ import type { Note } from "../domain/model";
 import { safeUrl } from "../domain/rules";
 import { db } from "../storage/db";
 import { service } from "../storage/service";
-import { addAttachment } from "../storage/attachments";
 import {
   act,
   flushNotes,
@@ -19,6 +18,7 @@ import { SaveSession, type SaveStatus } from "./save-session";
 import { AttachmentNode, AttachmentCache } from "./AttachmentNode";
 import { retainDraft, type LocalDraft } from "./recovery";
 import { setWorkView } from "../app/research";
+import { MaterialExport } from "../features/MaterialExport";
 
 export function NoteEditor({ note, epoch }: { note: Note; epoch: string }) {
   const [status, setStatus] = useState<SaveStatus>("Сохранено");
@@ -159,7 +159,7 @@ export function NoteEditor({ note, epoch }: { note: Note; epoch: string }) {
     setUploading(true);
     try {
       if (!inserted) {
-        const a = await addAttachment(db, file, initialEpoch, (a) =>
+        const a = await service.attachImage(file, initialEpoch, (a) =>
           local.attachments.set(a.id, a),
         );
         editor
@@ -376,6 +376,10 @@ export function NoteEditor({ note, epoch }: { note: Note; epoch: string }) {
               </div>
             )}
             <div className="row wrap">
+              <MaterialExport
+                target={{ noteId: note.id }}
+                epoch={initialEpoch}
+              />
               <button
                 className="primary"
                 disabled={uploading}

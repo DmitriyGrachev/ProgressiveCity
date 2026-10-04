@@ -1,9 +1,6 @@
 import { useState } from "react";
-import {
-  inspectArchive,
-  replaceCity,
-  type ValidatedArchive,
-} from "../storage/backup";
+import type { ValidatedArchive } from "../storage/backup";
+import { loadBackup } from "../app/load-backup";
 import { db } from "../storage/db";
 import { act, reportError } from "../app/ui";
 export function InitialRestore() {
@@ -28,7 +25,8 @@ export function InitialRestore() {
             if (!file) return;
             setBusy(true);
             setArchive(null);
-            void inspectArchive(file)
+            void loadBackup()
+              .then(({ inspectArchive }) => inspectArchive(file))
               .then(setArchive)
               .catch(reportError)
               .finally(() => setBusy(false));
@@ -54,6 +52,7 @@ export function InitialRestore() {
               onClick={() => {
                 setBusy(true);
                 void act(async () => {
+                  const { replaceCity } = await loadBackup();
                   // Refuse to replace a city concurrently created in another tab through the initial screen.
                   await db.transaction("rw", db.tables, async () => {
                     if (await db.cities.count())

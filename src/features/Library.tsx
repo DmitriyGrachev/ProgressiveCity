@@ -1,7 +1,7 @@
 import { useState } from "react";
 import type { CityData } from "../domain/model";
 import { navigate, useUI } from "../app/ui";
-import { NoteEditor } from "../notes/NoteEditor";
+import { NoteEditor } from "../notes/LazyNoteEditor";
 export function Library({ data }: { data: CityData }) {
   const [query, setQuery] = useState("");
   const [trackId, setTrackId] = useState("");

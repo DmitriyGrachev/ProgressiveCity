@@ -4,6 +4,8 @@ import { id } from "../domain/model";
 import { act, navigate, transition, useUI } from "../app/ui";
 import { service } from "../storage/service";
 import { researchContext } from "../domain/continuation";
+import { usePendingForm } from "../app/pending-forms";
+import { MaterialExport } from "./MaterialExport";
 
 export function ResearchPicker({
   data,
@@ -106,6 +108,36 @@ export function ResearchDetails({
   const [saved, setSaved] = useState(false);
   const [base, setBase] = useState({ object, epoch: data.storageEpoch });
   const [busy, setBusy] = useState(false);
+  const transitioning = useUI((s) => s.transitioning);
+  const clean = usePendingForm({
+    label: `Исследование «${base.object.name}»`,
+    epoch: base.epoch,
+    dirty:
+      !readonly &&
+      (name !== base.object.name || question !== base.object.nextQuestion),
+    text: `${name}\n\nСледующий вопрос: ${question}`,
+    save,
+    discard: () => {
+      setName(base.object.name);
+      setQuestion(base.object.nextQuestion);
+      clean();
+    },
+  });
+  async function save() {
+    setBusy(true);
+    try {
+      const updated = await service.updateLearningObject(
+        { ...base.object, name, nextQuestion: question },
+        base.epoch,
+        base.object,
+      );
+      setBase({ object: updated, epoch: base.epoch });
+      setSaved(true);
+      clean();
+    } finally {
+      setBusy(false);
+    }
+  }
   const invalidated = base.epoch !== data.storageEpoch;
   const changed =
     invalidated ||
@@ -121,6 +153,12 @@ export function ResearchDetails({
     .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
   return (
     <section className="research-details">
+      {!readonly && (
+        <MaterialExport
+          target={{ objectId: object.id }}
+          epoch={data.storageEpoch}
+        />
+      )}
       {latest && (
         <p className="hint">
           <b>Последний результат:</b> {latest.result}
@@ -169,12 +207,11 @@ export function ResearchDetails({
         <summary>Вопрос и название исследования</summary>
         {changed && (
           <p className="notice">
-            Сохранённое исследование изменилось в другой вкладке. Ваши поля
-            остались здесь. Скопируйте нужный текст, затем загрузите актуальные
-            поля.
+            Сохранённое исследование изменилось. Ваши поля остались здесь.
+            Скопируйте нужный текст, затем загрузите актуальные поля.
           </p>
         )}
-        <fieldset disabled={readonly}>
+        <fieldset disabled={readonly || busy || transitioning || invalidated}>
           <label>
             Имя исследования
             <input
@@ -197,21 +234,7 @@ export function ResearchDetails({
               }}
             />
           </label>
-          <button
-            disabled={busy || invalidated}
-            onClick={() => {
-              setBusy(true);
-              void act(async () => {
-                const updated = await service.updateLearningObject(
-                  { ...object, name, nextQuestion: question },
-                  base.epoch,
-                  base.object,
-                );
-                setBase({ object: updated, epoch: base.epoch });
-                setSaved(true);
-              }).finally(() => setBusy(false));
-            }}
-          >
+          <button disabled={busy || invalidated} onClick={() => void act(save)}>
             Сохранить исследование
           </button>
           {saved && <span role="status"> Исследование сохранено</span>}
@@ -223,6 +246,7 @@ export function ResearchDetails({
                 setQuestion(object.nextQuestion);
                 setBase({ object, epoch: data.storageEpoch });
                 setSaved(false);
+                clean();
               }}
             >
               Загрузить актуальные поля

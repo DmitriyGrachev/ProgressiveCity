@@ -1,0 +1,17 @@
+# Ежедневное использование — план M0–M6
+
+Исполнение в текущем сеансе одним агентом (executing-plans), затем отдельное read-only ревью. Дизайн: DAILY_RELEASE_SCOPE.md. Цель — полностью работающие F1–F6 поверх 33a7f9e. Стек прежний; новых полей БД/ZIP, зависимостей и экономики нет. Личный origin 127.0.0.1:5173 сохраняется, проверки используют отдельные порты и профили.
+
+Каждый этап: проверяемая регрессия → реализация → целевой прогон → фактический STATUS → следующий этап без ожидания. Подтверждённые проблемы устраняются до признания этапа готовым. Git — после проверок по действующему разрешению.
+
+## Особое внимание ревью
+
+Повторно использованный PID/чужой процесс; encoded Windows traversal и symlink; частичный успех нескольких форм; импорт с прежними ID во время ожидания; смешанные состояния Blob/заметок и транзитивно тяжёлые импорты. Все закрепляются тестами соответствующего этапа.
+
+- [x] M0. Свежий baseline всех прежних проверок, BASE_SHA/Node/npm, размеры build и реальные JS-запросы/медианы. Файлы: scripts/perf-report.mjs, docs/PERFORMANCE.md. Средство замера одинаково до/после; синтетические данные без личного профиля.
+- [x] M1 / F1. scripts/launcher/*, три .cmd, test:launcher, адресная .gitignore. Проверить подготовку, readiness, повтор/гонку, Stop/restart, missing tools/build, dirty fingerprint, ошибку build с сохранением прежней сборки, чужой сервер и PID, другой проект, loopback/traversal, Windows-оболочки и перенос пути. Новые тесты сначала должны показать отсутствие команды.
+- [x] M2 / F4. app/ui.ts + небольшой реестр/диалог, NextQuestionForm, ResearchDetails, ActivityForm, import reset. Прежний NoteEditor callback не заменяется. Координация проверена реальным UI: три решения, несколько форм, частичный отказ, epoch/unload, черновик без награды; прежние проверки pending image/конфликта сохранены. Все локальные переключатели форм используют общий переход.
+- [x] M3 / F2,F3. Чистые domain/search и habits, SearchPalette/TodayPanel, интеграция App и Library/ActivityForm. Unit ранга/дат/событий, e2e keyboard/focus/archive/unbuilt/dirty search, draft/zero/reward/retry/two tabs/midnight/timezone. Импорт при открытом поиске и общий маршрут — M5. Проверка данных и баланса, не только текста.
+- [x] M4 / F5. Чистый конвертер Markdown, storage/materials capture/limits, кнопки NoteEditor/ResearchDetails и быстрый backup/check. Unit узлов/имён/code/URL/изображений/лимитов/импорта во время упаковки; e2e dirty export/error/empty/backup check. Общая совместимость города — M5 и прежний ZIP round-trip. Только использованные Blob побайтово, source JSON сохранён.
+- [x] M5 / F6. Пять optional entry, static closure graph PASS, editor/materials retry на dist. S1–S5, desktop/narrow, настоящие PNG/pageerror, один editor/renderer, zero scene updates и освобождение URL. Чистый npm ci + build в отдельной папке PASS. Финальный perf: 130→93 мс пустое, 464→583 мс наполненное; начальный JS −32 806 bytes, общего ускорения нет (PERFORMANCE.md).
+- [x] M6. Read-only reviewer, два P2 исправлены и перепроверены. Последовательно lint/typecheck PASS, 98 unit, 71 e2e, build PASS, 31 preview; затем 6 launcher и perf. Первый полный e2e 70/1 задокументирован, предусловие загрузки второй вкладки уточнено без удаления проверки конфликта. Матрица всех F1–F6/S1–S5 DONE, README/STATUS/REVIEW_REPORT/PERFORMANCE/архитектура и синтетические PNG актуальны. Разрешённая передача — commit/push main без force, точная сверка heads в финальном сообщении; без деплоя.

@@ -1,6 +1,6 @@
 import { useState } from "react";
-import { exportLegacyCity } from "../storage/backup";
 import { db } from "../storage/db";
+import { loadBackup } from "../app/load-backup";
 
 export function MigrationRecovery() {
   const [busy, setBusy] = useState(false);
@@ -9,6 +9,7 @@ export function MigrationRecovery() {
     setBusy(true);
     setError("");
     try {
+      const { exportLegacyCity } = await loadBackup();
       const blob = await exportLegacyCity(db.name);
       const url = URL.createObjectURL(blob);
       const link = document.createElement("a");

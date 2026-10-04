@@ -1,6 +1,8 @@
 import { useRef, useState } from "react";
 import type { LearningObject } from "../domain/model";
 import { service } from "../storage/service";
+import { usePendingForm } from "../app/pending-forms";
+import { act, useUI } from "../app/ui";
 
 export function NextQuestionForm({
   object,
@@ -16,13 +18,26 @@ export function NextQuestionForm({
   const [skipped, setSkipped] = useState(false);
   const [busy, setBusy] = useState(false);
   const working = useRef(false);
+  const transitioning = useUI((s) => s.transitioning);
+  const clean = usePendingForm({
+    label: `Следующий вопрос «${base.object.name}»`,
+    epoch: base.epoch,
+    dirty: question !== base.object.nextQuestion,
+    text: question,
+    save,
+    discard: () => {
+      setQuestion(base.object.nextQuestion);
+      clean();
+    },
+  });
   const invalidated = base.epoch !== epoch;
   const changed =
     invalidated ||
     base.object.name !== object.name ||
     base.object.nextQuestion !== object.nextQuestion;
   async function save() {
-    if (working.current || invalidated) return;
+    if (working.current || invalidated)
+      throw new Error("Сохранение вопроса сейчас недоступно.");
     working.current = true;
     setBusy(true);
     setSaved(false);
@@ -35,10 +50,12 @@ export function NextQuestionForm({
       );
       setBase({ object: updated, epoch: base.epoch });
       setSaved(true);
+      clean();
     } catch (e) {
       setError(
         `Вопрос не сохранён. ${e instanceof Error ? e.message : "Повторите сохранение."}`,
       );
+      throw e;
     } finally {
       working.current = false;
       setBusy(false);
@@ -62,7 +79,7 @@ export function NextQuestionForm({
         <textarea
           maxLength={2000}
           value={question}
-          disabled={busy || invalidated}
+          disabled={busy || transitioning || invalidated}
           onChange={(e) => {
             setQuestion(e.target.value);
             setSaved(false);
@@ -70,7 +87,10 @@ export function NextQuestionForm({
         />
       </label>
       <div className="row wrap">
-        <button disabled={busy || invalidated} onClick={() => void save()}>
+        <button
+          disabled={busy || transitioning || invalidated}
+          onClick={() => void act(save)}
+        >
           Сохранить следующий вопрос
         </button>
         <button disabled={busy} onClick={() => setSkipped(true)}>
@@ -98,6 +118,7 @@ export function NextQuestionForm({
               setQuestion(object.nextQuestion);
               setSaved(false);
               setError("");
+              clean();
             }}
           >
             Загрузить актуальный вопрос

@@ -23,6 +23,9 @@ test("conflicting tabs retain both drafts and copy recovery releases navigation"
   await second
     .getByRole("button", { name: "Общий материал", exact: true })
     .click();
+  // Both editors must capture the original revision before the first write.
+  // Opening the panel can now precede its optional editor chunk loading.
+  await expect(second.locator(".tiptap")).toHaveText("Исходный текст");
   await page.locator(".tiptap").fill("Версия первой вкладки");
   await page
     .getByRole("button", { name: "Сохранить заметку", exact: true })

@@ -6,7 +6,7 @@ import {
 } from "../domain/comparison";
 import { navigate, useUI } from "../app/ui";
 import { exitComparison, refreshComparison } from "../app/comparison";
-import { NoteEditor } from "../notes/NoteEditor";
+import { NoteEditor } from "../notes/LazyNoteEditor";
 
 export function ComparisonPanel({ data }: { data: CityData }) {
   const comparison = useUI((s) => s.comparison);

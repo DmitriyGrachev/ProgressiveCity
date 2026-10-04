@@ -169,17 +169,11 @@ export function CityCanvas() {
       selected: comparisonScene ? comparisonScene.selected : selected,
       placement: comparisonScene ? null : placement,
       repeatPlacement,
-      busy: history.busy || transitioning,
     });
-  }, [
-    rendering,
-    comparisonScene,
-    selected,
-    placement,
-    repeatPlacement,
-    history.busy,
-    transitioning,
-  ]);
+  }, [rendering, comparisonScene, selected, placement, repeatPlacement]);
+  useEffect(() => {
+    engine.current?.setBusy(history.busy || transitioning);
+  }, [history.busy, transitioning]);
   useEffect(() => {
     if (fit) engine.current?.fitAll();
   }, [fit]);

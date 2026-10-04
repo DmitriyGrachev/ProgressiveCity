@@ -2,7 +2,7 @@ import { useState } from "react";
 import { id, labels, type CityData, type Track } from "../domain/model";
 import { act, navigate, transition, useUI } from "../app/ui";
 import { service } from "../storage/service";
-import { NoteEditor } from "../notes/NoteEditor";
+import { NoteEditor } from "../notes/LazyNoteEditor";
 import { Activities } from "./ActivityForm";
 import { TrackForm } from "./TrackForm";
 import { DevelopmentChoice, ResearchDetails, ResearchPicker } from "./Research";
@@ -14,6 +14,7 @@ export function TrackPanel({ data, track }: { data: CityData; track: Track }) {
   const workView = useUI((s) => s.workView);
   const objectId = useUI((s) => s.objectId);
   const resultRequest = useUI((s) => s.resultRequest);
+  const dayRequest = useUI((s) => s.dayRequest);
   const resultNoteId = resultRequest?.noteId;
   const [allMaterials, setAllMaterials] = useState(false);
   const object = data.learningObjects.find(
@@ -27,7 +28,7 @@ export function TrackPanel({ data, track }: { data: CityData; track: Track }) {
   const note = data.notes.find((n) => n.id === noteId);
   const activeTab = readonly
     ? "notes"
-    : resultNoteId
+    : resultNoteId || dayRequest?.trackId === track.id
       ? "results"
       : noteId
         ? "notes"
@@ -166,7 +167,11 @@ export function TrackPanel({ data, track }: { data: CityData; track: Track }) {
               onClick={() =>
                 void transition(async () => {
                   setTab(value);
-                  useUI.getState().set({ resultRequest: null, noteId: null });
+                  useUI.getState().set({
+                    resultRequest: null,
+                    dayRequest: null,
+                    noteId: null,
+                  });
                 })
               }
             >
@@ -243,11 +248,12 @@ export function TrackPanel({ data, track }: { data: CityData; track: Track }) {
         )}
         {activeTab === "results" && (
           <Activities
-            key={`${object?.id ?? track.id}-${resultNoteId ?? "manual"}`}
+            key={`${object?.id ?? track.id}-${resultNoteId ?? "manual"}-${dayRequest?.date ?? ""}-${dayRequest?.activityId ?? ""}`}
             data={data}
             track={track}
             object={object}
             initialRequest={resultRequest ?? undefined}
+            dayRequest={dayRequest ?? undefined}
           />
         )}
         {activeTab === "edit" && (

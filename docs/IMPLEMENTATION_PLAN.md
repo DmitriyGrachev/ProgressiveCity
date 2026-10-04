@@ -1,3 +1,17 @@
+# Ежедневное использование — 04.10.2026
+
+Текущий пакет F1–F6 поверх `33a7f9e`. Краткий дизайн — DAILY_RELEASE_SCOPE.md, подробные этапы и доказательства — DAILY_RELEASE_PLAN.md / DAILY_RELEASE_REVIEW.md. Один исполнитель, отдельный reviewer только чтением.
+
+- [x] M0. Свежие исходные lint/typecheck/unit/e2e/build/preview и численный baseline загрузки.
+- [x] M1. Windows Prepare/Start/Stop, loopback/ownership/immutable builds и реальные проверки CMD.
+- [x] M2. Общий безопасный переход для форм после NoteEditor flush, partial success, epoch/conflicts и восстановление текста.
+- [x] M3. Поиск и Today через прежние материалы/Activity, доступность, день/две вкладки/retry.
+- [x] M4. Читаемый экспорт материалов с изображениями, прежний полный backup/check, capture/limits.
+- [x] M5. Lazy/retry, S1–S5 и чистая установка проверены. До/после PERFORMANCE.md: начальный JS меньше на 32 806 bytes, общее ускорение не заявляется.
+- [x] M6. Read-only ревью и исправления, последовательные lint/typecheck, 98 unit, 71 e2e, build, 31 preview; затем 6 launcher/perf. Матрица и отчёты актуальны. Передача — разрешённые commit/push main без force и сверка HEAD; результат Git в финальном сообщении. Без деплоя.
+
+---
+
 # Продолжить исследование — 02.10.2026
 
 Дизайн CONTINUE_SCOPE.md, существующее приложение 3340ef2, один исполнитель.

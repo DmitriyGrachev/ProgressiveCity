@@ -1,4 +1,4 @@
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   id,
   labels,
@@ -10,7 +10,15 @@ import {
 } from "../domain/model";
 import { localDate } from "../domain/rules";
 import { service } from "../storage/service";
-import { act, flushNotes, type ResultRequest } from "../app/ui";
+import {
+  act,
+  flushNotes,
+  transition,
+  useUI,
+  type ResultRequest,
+  type DayRequest,
+} from "../app/ui";
+import { usePendingForm } from "../app/pending-forms";
 import { DevelopmentChoice } from "./Research";
 import { NextQuestionForm } from "./NextQuestionForm";
 export function ActivityForm({
@@ -19,6 +27,7 @@ export function ActivityForm({
   activity,
   object,
   initialRequest,
+  dayRequest,
   fresh,
 }: {
   data: CityData;
@@ -26,6 +35,7 @@ export function ActivityForm({
   activity?: Activity;
   object?: LearningObject;
   initialRequest?: ResultRequest;
+  dayRequest?: DayRequest;
   fresh: () => void;
 }) {
   const initialNote = data.notes.find(
@@ -35,12 +45,14 @@ export function ActivityForm({
       n.learningObjectId === object?.id,
   );
   const [title, setTitle] = useState(
-    activity?.title ?? (initialNote ? initialRequest?.title : undefined) ?? "",
+    activity?.title ??
+      (initialNote ? initialRequest?.title : undefined) ??
+      (dayRequest ? track.name : ""),
   );
   const [result, setResult] = useState(activity?.result ?? "");
   const [kind, setKind] = useState<ResultKind>(activity?.kind ?? "explore");
   const [date, setDate] = useState(
-    activity?.date ?? localDate(data.city!.timezone),
+    activity?.date ?? dayRequest?.date ?? localDate(data.city!.timezone),
   );
   const [duration, setDuration] = useState(
     activity?.duration?.toString() ?? "",
@@ -53,16 +65,64 @@ export function ActivityForm({
   const savedId = useRef(activity?.id);
   const [confirmed, setConfirmed] = useState(activity?.confirmed ?? false);
   const [saved, setSaved] = useState(Boolean(activity));
+  const [recordArchived, setRecordArchived] = useState(
+    activity?.archived ?? false,
+  );
   const [busy, setBusy] = useState(false);
   const working = useRef(false);
-  const [initialEpoch] = useState(initialRequest?.epoch ?? data.storageEpoch);
+  const [initialEpoch] = useState(
+    initialRequest?.epoch ?? dayRequest?.epoch ?? data.storageEpoch,
+  );
+  const [formTimezone] = useState(activity?.timezone ?? data.city!.timezone);
+  const [today, setToday] = useState(() => localDate(data.city!.timezone));
+  useEffect(() => {
+    const refresh = () => setToday(localDate(data.city!.timezone));
+    const timer = setInterval(refresh, 15000);
+    window.addEventListener("focus", refresh);
+    return () => {
+      clearInterval(timer);
+      window.removeEventListener("focus", refresh);
+    };
+  }, [data.city]);
   const invalidated = initialEpoch !== data.storageEpoch;
   const habit = ["habit", "reduce"].includes(track.type);
+  const transitioning = useUI((s) => s.transitioning);
+  const fields = {
+    title,
+    result,
+    kind,
+    date,
+    duration,
+    value,
+    achieved,
+    noteIds,
+  };
+  const [baseline, setBaseline] = useState(fields);
+  const expected = useRef(activity);
+  const clean = usePendingForm({
+    label: habit ? `Запись дня «${track.name}»` : "Результат исследования",
+    epoch: initialEpoch,
+    dirty: JSON.stringify(fields) !== JSON.stringify(baseline),
+    text: `${title}\n${date}\n${result}\nТип: ${kind}\nМинуты: ${duration}\nЗначение: ${value}\nЦель выполнена: ${achieved}\nМатериалы: ${noteIds.join(", ")}`,
+    save: () => save(false),
+    discard: () => {
+      setTitle(baseline.title);
+      setResult(baseline.result);
+      setKind(baseline.kind);
+      setDate(baseline.date);
+      setDuration(baseline.duration);
+      setValue(baseline.value);
+      setAchieved(baseline.achieved);
+      setNoteIds(baseline.noteIds);
+      clean();
+    },
+  });
   async function save(confirm: boolean) {
-    if (working.current || invalidated) return;
+    if (working.current || invalidated)
+      throw new Error("Сохранение записи сейчас недоступно.");
     working.current = true;
     setBusy(true);
-    await act(async () => {
+    try {
       await flushNotes();
       const a = await service.saveActivity(
         {
@@ -77,18 +137,43 @@ export function ActivityForm({
           achieved: habit ? achieved : true,
           duration: duration === "" ? undefined : Number(duration),
           value: value === "" ? undefined : Number(value),
+          ...(habit && !savedId.current ? { timezone: formTimezone } : {}),
         },
         initialEpoch,
+        expected.current,
       );
       savedId.current = a.id;
+      expected.current = a;
+      setBaseline(fields);
+      clean();
       setSaved(true);
       if (confirm) {
         await service.confirmActivity(a.id, initialEpoch);
         setConfirmed(true);
+        expected.current = { ...a, confirmed: true };
       }
-    });
-    setBusy(false);
-    working.current = false;
+    } finally {
+      setBusy(false);
+      working.current = false;
+    }
+  }
+  async function archiveRecord() {
+    if (working.current || invalidated || !expected.current)
+      throw new Error("Изменение записи сейчас недоступно.");
+    working.current = true;
+    setBusy(true);
+    try {
+      const updated = await service.saveActivity(
+        { ...expected.current, archived: !expected.current.archived },
+        initialEpoch,
+        expected.current,
+      );
+      expected.current = updated;
+      setRecordArchived(updated.archived);
+    } finally {
+      working.current = false;
+      setBusy(false);
+    }
   }
   return (
     <section>
@@ -128,123 +213,138 @@ export function ActivityForm({
             : ""}
         </p>
       )}
-      <label>
-        Название результата
-        <input
-          maxLength={250}
-          value={title}
-          onChange={(e) => setTitle(e.target.value)}
-        />
-      </label>
-      <div className="row">
+      {habit && date !== today && (
+        <p className="notice">
+          Открыта запись за {date}. Сегодня в городе {today}. Эта запись
+          останется на своей дате.{" "}
+          <button disabled={busy || transitioning} onClick={fresh}>
+            Начать запись за сегодня
+          </button>
+        </p>
+      )}
+      <fieldset disabled={busy || transitioning || invalidated}>
         <label>
-          Дата результата
+          Название результата
           <input
-            type="date"
-            disabled={saved}
-            value={date}
-            onChange={(e) => setDate(e.target.value)}
+            maxLength={250}
+            value={title}
+            onChange={(e) => setTitle(e.target.value)}
           />
         </label>
-        <label>
-          Минуты, необязательно
-          <input
-            type="number"
-            min="0"
-            max="1440"
-            value={duration}
-            onChange={(e) => setDuration(e.target.value)}
-          />
-        </label>
-      </div>
-      <label>
-        Что получилось
-        <textarea
-          value={result}
-          onChange={(e) => setResult(e.target.value)}
-          placeholder="Что попробовали, заметили или применили?"
-        />
-      </label>
-      <label>
-        Тип результата
-        <select
-          value={kind}
-          onChange={(e) => setKind(e.target.value as ResultKind)}
-        >
-          {Object.entries(labels.results).map(([v, label], i) => (
-            <option key={v} value={v}>
-              {label} · +{data.city!.rules.rewards[i]}
-            </option>
-          ))}
-        </select>
-      </label>
-      {habit && (
-        <>
+        <div className="row">
           <label>
-            Значение ({track.unit || "по желанию"})
+            Дата результата
+            <input
+              type="date"
+              disabled={saved}
+              value={date}
+              onChange={(e) => setDate(e.target.value)}
+            />
+          </label>
+          <label>
+            Минуты, необязательно
             <input
               type="number"
-              step="any"
-              value={value}
-              onChange={(e) => setValue(e.target.value)}
+              min="0"
+              max="1440"
+              value={duration}
+              onChange={(e) => setDuration(e.target.value)}
             />
           </label>
-          <label className="check">
-            <input
-              type="checkbox"
-              checked={achieved}
-              onChange={(e) => setAchieved(e.target.checked)}
-            />
-            Я считаю свою цель выполненной
-          </label>
-          <p className="hint">
-            Без отметки — запись без награды. Не более одной награды за дату.
-            Часовой пояс: {activity?.timezone ?? data.city!.timezone}.
-          </p>
-        </>
-      )}
-      {data.notes.some(
-        (n) => n.trackId === track.id && n.learningObjectId === object?.id,
-      ) && (
-        <fieldset>
-          <legend>Связанные материалы</legend>
-          {data.notes
-            .filter(
-              (n) =>
-                n.trackId === track.id && n.learningObjectId === object?.id,
-            )
-            .map((n) => (
-              <label className="check" key={n.id}>
-                <input
-                  type="checkbox"
-                  checked={noteIds.includes(n.id)}
-                  onChange={(e) =>
-                    setNoteIds(
-                      e.target.checked
-                        ? [...noteIds, n.id]
-                        : noteIds.filter((v) => v !== n.id),
-                    )
-                  }
-                />
-                {n.id === initialRequest?.noteId
-                  ? initialRequest.title
-                  : n.title}
-              </label>
+        </div>
+        <label>
+          Что получилось
+          <textarea
+            value={result}
+            onChange={(e) => setResult(e.target.value)}
+            placeholder="Что попробовали, заметили или применили?"
+          />
+        </label>
+        <label>
+          Тип результата
+          <select
+            value={kind}
+            onChange={(e) => setKind(e.target.value as ResultKind)}
+          >
+            {Object.entries(labels.results).map(([v, label], i) => (
+              <option key={v} value={v}>
+                {label} · +{data.city!.rules.rewards[i]}
+              </option>
             ))}
-        </fieldset>
-      )}
-      <div className="row wrap">
-        <button disabled={busy || invalidated} onClick={() => void save(false)}>
-          {confirmed ? "Сохранить дополнение" : "Сохранить черновик"}
-        </button>
-        <button
-          className="primary"
-          disabled={busy || invalidated || confirmed || track.archived}
-          onClick={() => void save(true)}
-        >
-          Подтвердить результат
-        </button>
-      </div>
+          </select>
+        </label>
+        {habit && (
+          <>
+            <label>
+              Значение ({track.unit || "по желанию"})
+              <input
+                type="number"
+                step="any"
+                value={value}
+                onChange={(e) => setValue(e.target.value)}
+              />
+            </label>
+            <label className="check">
+              <input
+                type="checkbox"
+                checked={achieved}
+                onChange={(e) => setAchieved(e.target.checked)}
+              />
+              Я считаю свою цель выполненной
+            </label>
+            <p className="hint">
+              Подтверждение без отметки закрепит нулевую награду: получить очки
+              за эту дату повторно нельзя. Сохранение черновика не закрепляет
+              награду. Часовой пояс записи: {formTimezone}.
+            </p>
+          </>
+        )}
+        {data.notes.some(
+          (n) => n.trackId === track.id && n.learningObjectId === object?.id,
+        ) && (
+          <fieldset>
+            <legend>Связанные материалы</legend>
+            {data.notes
+              .filter(
+                (n) =>
+                  n.trackId === track.id && n.learningObjectId === object?.id,
+              )
+              .map((n) => (
+                <label className="check" key={n.id}>
+                  <input
+                    type="checkbox"
+                    checked={noteIds.includes(n.id)}
+                    onChange={(e) =>
+                      setNoteIds(
+                        e.target.checked
+                          ? [...noteIds, n.id]
+                          : noteIds.filter((v) => v !== n.id),
+                      )
+                    }
+                  />
+                  {n.id === initialRequest?.noteId
+                    ? initialRequest.title
+                    : n.title}
+                </label>
+              ))}
+          </fieldset>
+        )}
+        <div className="row wrap">
+          <button
+            disabled={busy || invalidated}
+            onClick={() => void act(() => save(false))}
+          >
+            {confirmed ? "Сохранить дополнение" : "Сохранить черновик"}
+          </button>
+          <button
+            className="primary"
+            disabled={busy || invalidated || confirmed || track.archived}
+            onClick={() => void act(() => save(true))}
+          >
+            Подтвердить результат
+          </button>
+        </div>
+      </fieldset>
       {confirmed && (
         <p className="hint success">
           {habit ? "Запись подтверждена." : "Результат подтверждён."} Дополнения
@@ -268,21 +368,10 @@ export function ActivityForm({
       {saved && (
         <button
           className="text-button"
-          disabled={busy || invalidated}
-          onClick={() =>
-            void act(async () => {
-              const a = await service.db.activities.get(savedId.current!);
-              if (a)
-                await service.saveActivity(
-                  { ...a, archived: !a.archived },
-                  initialEpoch,
-                );
-            })
-          }
+          disabled={busy || transitioning || invalidated}
+          onClick={() => void act(archiveRecord)}
         >
-          {activity?.archived
-            ? "Вернуть запись из архива"
-            : "Архивировать запись"}
+          {recordArchived ? "Вернуть запись из архива" : "Архивировать запись"}
         </button>
       )}
     </section>
@@ -293,16 +382,21 @@ export function Activities({
   track,
   object,
   initialRequest,
+  dayRequest,
 }: {
   data: CityData;
   track: Track;
   object?: LearningObject;
   initialRequest?: ResultRequest;
+  dayRequest?: DayRequest;
 }) {
-  const [selected, setSelected] = useState<string | null>(null);
+  const [selected, setSelected] = useState<string | null>(
+    dayRequest?.activityId ?? null,
+  );
   const [key, setKey] = useState(id);
   const [archived, setArchived] = useState(false);
   const [prefill, setPrefill] = useState(initialRequest);
+  const [dayPrefill, setDayPrefill] = useState(dayRequest);
   const a = data.activities.find((a) => a.id === selected);
   return (
     <>
@@ -313,11 +407,23 @@ export function Activities({
         activity={a}
         object={object}
         initialRequest={prefill}
-        fresh={() => {
-          setSelected(null);
-          setPrefill(undefined);
-          setKey(id());
-        }}
+        dayRequest={dayPrefill}
+        fresh={() =>
+          void transition(async () => {
+            setSelected(null);
+            setPrefill(undefined);
+            setDayPrefill(
+              dayRequest
+                ? {
+                    ...dayRequest,
+                    activityId: undefined,
+                    date: localDate(data.city!.timezone),
+                  }
+                : undefined,
+            );
+            setKey(id());
+          })
+        }
       />
       <hr />
       <h3>{object ? "Результаты исследования" : "Записи направления"}</h3>
@@ -341,11 +447,14 @@ export function Activities({
           <button
             className="list-row"
             key={a.id}
-            onClick={() => {
-              setSelected(a.id);
-              setPrefill(undefined);
-              setKey(id());
-            }}
+            onClick={() =>
+              void transition(async () => {
+                setSelected(a.id);
+                setPrefill(undefined);
+                setDayPrefill(undefined);
+                setKey(id());
+              })
+            }
           >
             <span>
               {a.title}

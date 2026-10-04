@@ -1,4 +1,6 @@
 import { create } from "zustand";
+import { resolvePendingForms } from "./pending-forms";
+import { db } from "../storage/db";
 import type { Building } from "../domain/model";
 import type { ComparisonSession, ComparisonView } from "../domain/comparison";
 export type Panel =
@@ -8,11 +10,18 @@ export interface ResultRequest {
   title: string;
   epoch: string;
 }
+export interface DayRequest {
+  trackId: string;
+  date: string;
+  activityId?: string;
+  epoch: string;
+}
 interface UI {
   panel: Panel | null;
   trackId: string | null;
   objectId: string | null;
   resultRequest: ResultRequest | null;
+  dayRequest: DayRequest | null;
   noteId: string | null;
   buildingId: string | null;
   placement: Building | null;
@@ -35,6 +44,7 @@ export const useUI = create<UI>((set) => ({
   trackId: null,
   objectId: null,
   resultRequest: null,
+  dayRequest: null,
   noteId: null,
   buildingId: null,
   placement: null,
@@ -71,16 +81,28 @@ export async function navigate(patch: Partial<Omit<UI, "set">>) {
       (patch.panel !== undefined &&
         patch.panel !== "track" &&
         patch.panel !== "library");
-    useUI
-      .getState()
-      .set({ ...patch, ...(leaveWork ? { workView: false } : {}), error: "" });
+    useUI.getState().set({
+      dayRequest: null,
+      ...patch,
+      ...(leaveWork ? { workView: false } : {}),
+      error: "",
+    });
   });
 }
-export async function transition(action: () => Promise<void>) {
+export async function transition(
+  action: () => Promise<void>,
+  options: { forms?: boolean } = {},
+) {
   if (useUI.getState().transitioning) return;
   useUI.getState().set({ transitioning: true });
   try {
+    const epoch = (await db.metadata.get("epoch"))?.value;
     await flushEditor?.();
+    if (options.forms !== false && !(await resolvePendingForms())) return;
+    if ((await db.metadata.get("epoch"))?.value !== epoch)
+      throw new Error(
+        "Город заменён во время перехода. Выберите действие заново; прежние черновики доступны для восстановления.",
+      );
     await action();
   } catch (e) {
     reportError(e);

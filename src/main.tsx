@@ -1,6 +1,7 @@
 import { Component, type ReactNode } from "react";
 import { createRoot } from "react-dom/client";
 import { App } from "./app/App";
+import { PendingFormsUI } from "./app/pending-forms";
 import { MigrationRecovery } from "./features/MigrationRecovery";
 import { migrationLimitMessage } from "./storage/limits";
 import "./styles.css";
@@ -35,5 +36,6 @@ class ErrorBoundary extends Component<
 createRoot(document.getElementById("root")!).render(
   <ErrorBoundary>
     <App />
+    <PendingFormsUI />
   </ErrorBoundary>,
 );

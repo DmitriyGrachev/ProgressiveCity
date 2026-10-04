@@ -22,7 +22,6 @@ export interface SceneInput {
   selected: string | null;
   placement: Building | null;
   repeatPlacement: boolean;
-  busy: boolean;
   snapshot?: Snapshot;
   comparison?: {
     view: ComparisonView;
@@ -201,6 +200,10 @@ export class CityEngine {
       color: "#91af87",
       width: 2,
     });
+  }
+  private busy = false;
+  setBusy(busy: boolean) {
+    this.busy = busy;
   }
   update(input: SceneInput) {
     const old = this.input;
@@ -535,7 +538,7 @@ export class CityEngine {
     if (this.drag?.pointerId === e.pointerId) this.cancelGesture();
   };
   private down = (e: PointerEvent) => {
-    if (e.button > 2 || this.drag || this.saving || this.input?.busy) return;
+    if (e.button > 2 || this.drag || this.saving || this.busy) return;
     this.host.setPointerCapture(e.pointerId);
     this.app.canvas.focus();
     this.drag = {
@@ -655,7 +658,7 @@ export class CityEngine {
       this.host.releasePointerCapture(e.pointerId);
     this.pointer = { clientX: e.clientX, clientY: e.clientY };
     this.render();
-    if (drag.moved || e.button !== 0 || this.saving || this.input?.busy) return;
+    if (drag.moved || e.button !== 0 || this.saving || this.busy) return;
     if (this.input?.placement && !this.input.snapshot) {
       if (cells) {
         if (this.drawRoad(cells))

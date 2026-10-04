@@ -1,5 +1,6 @@
 import type {
   Activity,
+  Attachment,
   Building,
   City,
   District,
@@ -15,6 +16,7 @@ import { LayoutService } from "./layout";
 import { snapshotLayout } from "../domain/comparison";
 import { dataSchema, validateDocument } from "./validation";
 import { noteSchema } from "../notes/schema";
+import { addAttachment } from "./attachments";
 
 type TrackInput = Pick<
   Track,
@@ -31,11 +33,18 @@ type ActivityInput = Omit<
   Activity,
   "id" | "timezone" | "confirmed" | "archived" | "createdAt"
 > &
-  Partial<Pick<Activity, "id" | "archived">>;
+  Partial<Pick<Activity, "id" | "archived" | "timezone">>;
 export class CityService {
   readonly planning: LayoutService;
   constructor(public db: CityDB) {
     this.planning = new LayoutService(db);
+  }
+  attachImage(
+    file: File,
+    epoch: string,
+    retain?: (attachment: Attachment) => void,
+  ) {
+    return addAttachment(this.db, file, epoch, retain);
   }
   private transaction<T>(fn: () => Promise<T>) {
     return this.db.transaction("rw", this.db.tables, fn);
@@ -244,6 +253,7 @@ export class CityService {
   async saveActivity(
     input: ActivityInput,
     expectedEpoch?: string,
+    expected?: Activity,
   ): Promise<Activity> {
     if (!input.title.trim() || !validDate(input.date))
       throw new Error("Введите название и корректную дату.");
@@ -262,6 +272,29 @@ export class CityService {
       const track = await this.track(input.trackId);
       const object = await this.objectFor(track, input.learningObjectId);
       const old = input.id ? await this.db.activities.get(input.id) : undefined;
+      if (
+        expected &&
+        (!old ||
+          (
+            [
+              "title",
+              "result",
+              "kind",
+              "noteIds",
+              "duration",
+              "value",
+              "achieved",
+              "confirmed",
+              "archived",
+            ] as const
+          ).some(
+            (field) =>
+              JSON.stringify(old[field]) !== JSON.stringify(expected[field]),
+          ))
+      )
+        throw new Error(
+          "Запись изменена в другой вкладке. Ваши поля сохранены в форме; скопируйте их перед повторным открытием записи.",
+        );
       if (
         old &&
         (input.trackId !== old.trackId ||
@@ -286,7 +319,7 @@ export class CityService {
         ...input,
         ...(object ? { learningObjectId: object.id } : {}),
         id: old?.id ?? id(),
-        timezone: old?.timezone ?? city.timezone,
+        timezone: old?.timezone ?? input.timezone ?? city.timezone,
         confirmed: old?.confirmed ?? false,
         archived: input.archived ?? old?.archived ?? false,
         createdAt: old?.createdAt ?? now(),

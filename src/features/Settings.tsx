@@ -1,25 +1,12 @@
 import { useState } from "react";
 import type { CityData } from "../domain/model";
-import { act, flushNotes, reportError } from "../app/ui";
+import { act, reportError, transition } from "../app/ui";
+import { downloadBackup } from "../app/backup-actions";
 import { db } from "../storage/db";
 import { service } from "../storage/service";
 import { BackupUsage } from "./BackupUsage";
-import {
-  exportCity,
-  inspectArchive,
-  replaceCity,
-  type ValidatedArchive,
-} from "../storage/backup";
-export async function downloadBackup() {
-  await flushNotes();
-  const blob = await exportCity(db);
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = `city-${new Date().toISOString().slice(0, 10)}.progresscity.zip`;
-  a.click();
-  setTimeout(() => URL.revokeObjectURL(url), 30_000);
-}
+import type { ValidatedArchive } from "../storage/backup";
+import { loadBackup } from "../app/load-backup";
 export function Settings({ data }: { data: CityData }) {
   const city = data.city!;
   const [name, setName] = useState(city.name);
@@ -149,7 +136,13 @@ export function Settings({ data }: { data: CityData }) {
           disabled={busy}
           onClick={() => {
             setBusy(true);
-            void act(downloadBackup).finally(() => setBusy(false));
+            setMessage("");
+            void transition(async () => {
+              await downloadBackup();
+              setMessage(
+                "Архив города передан браузеру. Проверьте загрузки и сохраните файл.",
+              );
+            }).finally(() => setBusy(false));
           }}
         >
           Экспортировать город
@@ -167,7 +160,8 @@ export function Settings({ data }: { data: CityData }) {
               if (!file) return;
               setArchive(null);
               setBusy(true);
-              void inspectArchive(file)
+              void loadBackup()
+                .then(({ inspectArchive }) => inspectArchive(file))
                 .then(setArchive)
                 .catch(reportError)
                 .finally(() => setBusy(false));
@@ -222,6 +216,7 @@ export function Settings({ data }: { data: CityData }) {
               onClick={() => {
                 setBusy(true);
                 void act(async () => {
+                  const { replaceCity } = await loadBackup();
                   await replaceCity(db, archive);
                   window.location.reload();
                 }).finally(() => setBusy(false));
