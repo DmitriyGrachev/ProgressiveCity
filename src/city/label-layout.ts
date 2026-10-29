@@ -110,3 +110,30 @@ export function fitBounds(bounds: ScreenRect, viewport: ScreenRect) {
     y: viewport.y + viewport.height / 2 - (bounds.y + bounds.height / 2) * zoom,
   };
 }
+
+/** Keep normal labels above the dock; use the side when that height is exhausted. */
+export function rightDockViewport(
+  base: ScreenRect,
+  controls: ScreenRect[],
+): ScreenRect {
+  const docks = controls.filter((rect) => overlaps(base, rect));
+  if (!docks.length) return base;
+  const above = {
+    ...base,
+    height: Math.max(
+      0,
+      Math.min(base.y + base.height, ...docks.map((r) => r.y - 12)) - base.y,
+    ),
+  };
+  const beside = {
+    ...base,
+    width: Math.max(
+      0,
+      Math.min(base.x + base.width, ...docks.map((r) => r.x - 12)) - base.x,
+    ),
+  };
+  if (above.height >= 80) return above;
+  return above.width * above.height >= beside.width * beside.height
+    ? above
+    : beside;
+}

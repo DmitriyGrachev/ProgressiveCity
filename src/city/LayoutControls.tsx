@@ -11,15 +11,18 @@ export function useLayoutHistory() {
 export function LayoutControls({
   epoch,
   cancel,
+  paused = false,
 }: {
   epoch?: string;
   cancel: () => void;
+  paused?: boolean;
 }) {
   const history = useLayoutHistory();
   const readonly = useUI((s) => Boolean(s.snapshotId || s.comparison));
   const placement = useUI((s) => s.placement);
   useEffect(() => {
     const key = (e: KeyboardEvent) => {
+      if (paused) return;
       if (e.key === "Escape") {
         cancel();
         return;
@@ -54,14 +57,16 @@ export function LayoutControls({
     };
     window.addEventListener("keydown", key);
     return () => window.removeEventListener("keydown", key);
-  }, [epoch, readonly, history, cancel]);
+  }, [epoch, readonly, history, cancel, paused]);
   return (
     <div className="layout-controls" aria-label="История планировки">
       <div className="row">
         <button
           aria-label="Отменить планировку"
           title={`Ctrl/Cmd+Z · ${history.undoLabel ?? "Нет действий"}`}
-          disabled={readonly || history.busy || !epoch || !history.undoLabel}
+          disabled={
+            paused || readonly || history.busy || !epoch || !history.undoLabel
+          }
           onClick={() => {
             cancel();
             void act(() => service.planning.undo(epoch!));
@@ -72,7 +77,9 @@ export function LayoutControls({
         <button
           aria-label="Повторить планировку"
           title={`Ctrl/Cmd+Shift+Z / Ctrl+Y · ${history.redoLabel ?? "Нет действий"}`}
-          disabled={readonly || history.busy || !epoch || !history.redoLabel}
+          disabled={
+            paused || readonly || history.busy || !epoch || !history.redoLabel
+          }
           onClick={() => {
             cancel();
             void act(() => service.planning.redo(epoch!));

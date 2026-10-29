@@ -270,3 +270,73 @@ it("undoes district geometry independently of buildings and skips no-op changes"
   await service.planning.redo(epoch);
   expect(await db.districts.get(d.id)).toEqual(d);
 });
+
+it("rejects a stale building form across connections without changing data or undo", async () => {
+  const peerDB = new CityDB(db.name);
+  const peer = new CityService(peerDB);
+  try {
+    const original = (await peerDB.buildings.toArray())[0];
+    await service.placeBuilding({ ...original, color: "#327a91" }, epoch);
+    const before = await db.events.toArray();
+    const history = peer.planning.getSnapshot();
+    await expect(
+      peer.placeBuilding(
+        { ...original, name: "Имя из старой формы" },
+        epoch,
+        original,
+      ),
+    ).rejects.toThrow(/изменён|изменено/);
+    expect((await db.buildings.get(original.id))?.color).toBe("#327a91");
+    expect(await db.events.toArray()).toEqual(before);
+    expect(peer.planning.getSnapshot()).toEqual(history);
+    const current = (await peerDB.buildings.get(original.id))!;
+    const updated = { ...current, name: "Согласованное имя" };
+    await peer.placeBuilding(updated, epoch, current);
+    await peer.planning.undo(epoch);
+    expect(await db.buildings.get(original.id)).toEqual(current);
+    await peer.planning.redo(epoch);
+    expect(await db.buildings.get(original.id)).toEqual(updated);
+  } finally {
+    peerDB.close();
+  }
+});
+
+it("rejects a stale district form and retains the latest geometry", async () => {
+  const original = {
+    id: id(),
+    name: "Сад",
+    color: "#507d78",
+    x: 2,
+    y: 2,
+    w: 10,
+    h: 10,
+  };
+  await service.saveDistrict(original, epoch);
+  const peer = new CityService(db);
+  await service.saveDistrict({ ...original, w: 12 }, epoch, original);
+  const events = await db.events.toArray();
+  await expect(
+    peer.saveDistrict({ ...original, name: "Сад B" }, epoch, original),
+  ).rejects.toThrow(/изменён|изменено/);
+  expect((await db.districts.get(original.id))?.w).toBe(12);
+  expect(await db.events.toArray()).toEqual(events);
+  expect(peer.planning.getSnapshot().undoLabel).toBeNull();
+});
+
+it("never resurrects a remotely removed building or district from an editing baseline", async () => {
+  const b = (await db.buildings.toArray())[0];
+  const d = { id: id(), name: "Сад", color: "#507d78", x: 2, y: 2, w: 4, h: 4 };
+  await service.saveDistrict(d, epoch);
+  await service.removeBuilding(b.id, epoch);
+  await service.removeDistrict(d.id, epoch);
+  const events = await db.events.toArray();
+  await expect(
+    service.placeBuilding({ ...b, name: "Старое здание" }, epoch, b),
+  ).rejects.toThrow(/изменён|удалён/);
+  await expect(
+    service.saveDistrict({ ...d, name: "Старый район" }, epoch, d),
+  ).rejects.toThrow(/изменён|удалён/);
+  expect(await db.buildings.count()).toBe(0);
+  expect(await db.districts.count()).toBe(0);
+  expect(await db.events.toArray()).toEqual(events);
+});

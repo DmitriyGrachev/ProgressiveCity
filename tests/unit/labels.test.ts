@@ -3,10 +3,42 @@ import {
   arrangeLabels,
   overlaps,
   fitBounds,
+  rightDockViewport,
   type LabelCandidate,
 } from "../../src/city/label-layout";
 
 const viewport = { x: 0, y: 0, width: 400, height: 300 };
+it("keeps usable height beside a right dock when the area above it is exhausted", () => {
+  const base = { x: 12, y: 120, width: 850, height: 280 };
+  const dock = { x: 550, y: 150, width: 300, height: 250 };
+  const usable = rightDockViewport(base, [dock]);
+  expect(usable).toEqual({ x: 12, y: 120, width: 526, height: 280 });
+  expect(overlaps(usable, dock)).toBe(false);
+  const bounds = { x: -200, y: -90, width: 400, height: 300 };
+  const camera = fitBounds(bounds, usable);
+  expect(bounds.y * camera.zoom + camera.y).toBeGreaterThanOrEqual(
+    usable.y + 15,
+  );
+});
+it("keeps the area above a full-width dock on a narrow screen", () => {
+  const base = { x: 12, y: 110, width: 300, height: 450 };
+  expect(
+    rightDockViewport(base, [{ x: 20, y: 350, width: 290, height: 200 }]),
+  ).toEqual({ x: 12, y: 110, width: 300, height: 228 });
+});
+it("does not shrink the viewport for absent or out-of-view controls", () => {
+  expect(rightDockViewport(viewport, [])).toEqual(viewport);
+  expect(
+    rightDockViewport(viewport, [{ x: 500, y: 10, width: 30, height: 30 }]),
+  ).toEqual(viewport);
+});
+it("preserves the normal full-width label region when there is enough height above the dock", () => {
+  expect(
+    rightDockViewport({ x: 0, y: 0, width: 1200, height: 800 }, [
+      { x: 900, y: 600, width: 300, height: 200 },
+    ]),
+  ).toEqual({ x: 0, y: 0, width: 1200, height: 588 });
+});
 const label = (id: string, x = 200, priority = 1): LabelCandidate => ({
   id,
   x,

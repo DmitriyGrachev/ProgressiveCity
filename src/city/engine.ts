@@ -54,7 +54,12 @@ export class CityEngine {
     height: number;
   };
   private input?: SceneInput;
-  private hits: { b: Building; graphic: Graphics; container: Container }[] = [];
+  private hits: {
+    b: Building;
+    graphic: Graphics;
+    container: Container;
+    bounds: ScreenRect;
+  }[] = [];
   private observer?: ResizeObserver;
   private camera = { x: 0, y: 0, zoom: 1 };
   private drag?: {
@@ -288,7 +293,6 @@ export class CityEngine {
         1;
       const art = buildingArt(b, stage, input.selected === b.id);
       this.objects.addChild(art.container);
-      this.hits.push({ b, ...art });
       const local = art.graphic.getLocalBounds();
       const bounds = {
         x: local.x + art.container.x,
@@ -296,6 +300,7 @@ export class CityEngine {
         width: local.width,
         height: local.height,
       };
+      this.hits.push({ b, ...art, bounds });
       this.occupiedBounds.push(bounds);
       labels.push({
         id: `building:${b.id}`,
@@ -442,11 +447,44 @@ export class CityEngine {
     this.render();
   }
   fitBuildings() {
-    if (!this.occupiedBounds.length) {
+    this.fitRects(this.occupiedBounds);
+  }
+  fitProgress() {
+    this.fitRects(this.hits.filter((h) => h.b.trackId).map((h) => h.bounds));
+  }
+  focusDistrict(id: string) {
+    const d = (
+      this.input?.snapshot?.districts ?? this.input?.data.districts
+    )?.find((d) => d.id === id);
+    if (!d) return;
+    const points = [
+      [d.x, d.y],
+      [d.x + d.w, d.y],
+      [d.x + d.w, d.y + d.h],
+      [d.x, d.y + d.h],
+    ].map(([x, y]) => gridToIso(x, y));
+    const left = Math.min(...points.map((p) => p.x)),
+      top = Math.min(...points.map((p) => p.y));
+    this.fitRects([
+      {
+        x: left,
+        y: top,
+        width: Math.max(...points.map((p) => p.x)) - left,
+        height: Math.max(...points.map((p) => p.y)) - top,
+      },
+      ...this.hits
+        .filter(
+          ({ b }) =>
+            b.x >= d.x && b.x < d.x + d.w && b.y >= d.y && b.y < d.y + d.h,
+        )
+        .map((h) => h.bounds),
+    ]);
+  }
+  private fitRects(bounds: ScreenRect[]) {
+    if (!bounds.length) {
       this.fitAll();
       return;
     }
-    const bounds = this.occupiedBounds;
     const left = Math.min(...bounds.map((b) => b.x)),
       top = Math.min(...bounds.map((b) => b.y));
     const right = Math.max(...bounds.map((b) => b.x + b.width)),

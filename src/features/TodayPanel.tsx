@@ -2,8 +2,8 @@ import { useEffect, useState } from "react";
 import type { CityData } from "../domain/model";
 import { habitDay } from "../domain/habits";
 import { localDate } from "../domain/rules";
-import { db } from "../storage/db";
-import { transition, useUI } from "../app/ui";
+import { useUI } from "../app/ui";
+import { openHabitDay } from "../app/habits";
 export function TodayPanel({
   data,
   hidden,
@@ -11,7 +11,7 @@ export function TodayPanel({
   data: CityData;
   hidden: boolean;
 }) {
-  const [collapsed, setCollapsed] = useState(false),
+  const [collapsed, setCollapsed] = useState(true),
     [all, setAll] = useState(false);
   const [clock, setClock] = useState(() => new Date());
   const busy = useUI((s) => s.transitioning);
@@ -31,60 +31,7 @@ export function TodayPanel({
     );
   const date = localDate(data.city!.timezone, clock);
   async function open(trackId: string) {
-    await transition(async () => {
-      const request = await db.transaction(
-        "r",
-        [db.metadata, db.tracks, db.activities, db.events],
-        async () => {
-          if ((await db.metadata.get("epoch"))?.value !== data.storageEpoch)
-            throw new Error("Город заменён. Выберите привычку заново.");
-          const track = await db.tracks.get(trackId);
-          if (
-            !track ||
-            track.archived ||
-            !["habit", "reduce"].includes(track.type)
-          )
-            throw new Error("Привычка недоступна.");
-          const day = habitDay(
-            {
-              activities: await db.activities
-                .where("trackId")
-                .equals(trackId)
-                .toArray(),
-              events: await db.events
-                .where("trackId")
-                .equals(trackId)
-                .toArray(),
-            },
-            trackId,
-            date,
-          );
-          return {
-            trackId,
-            date,
-            epoch: data.storageEpoch,
-            activityId: day.activity?.id,
-          };
-        },
-      );
-      if (
-        useUI.getState().comparison ||
-        useUI.getState().snapshotId ||
-        (await db.metadata.get("epoch"))?.value !== data.storageEpoch
-      )
-        return;
-      useUI.getState().set({
-        panel: "track",
-        trackId,
-        objectId: null,
-        noteId: null,
-        buildingId: null,
-        resultRequest: null,
-        dayRequest: request,
-        workView: false,
-        placement: null,
-      });
-    });
+    await openHabitDay(trackId, date, data.storageEpoch);
   }
   if (hidden) return null;
   return (
@@ -101,11 +48,47 @@ export function TodayPanel({
           {collapsed ? "Развернуть привычки" : "Свернуть привычки"}
         </button>
       </div>
+      {collapsed && (
+        <div className="daily-quick-actions">
+          {tracks.slice(0, 3).map((track) => {
+            const day = habitDay(data, track.id, date);
+            const status = {
+              none: "Нет записи",
+              draft: "Есть черновик",
+              zero: "Подтверждено без награды",
+              reward: `Подтверждено: +${day.event?.amount ?? 0}`,
+            }[day.status];
+            return (
+              <button
+                key={track.id}
+                disabled={busy}
+                title={`${track.name}: ${status}`}
+                aria-label={`${day.activity ? "Открыть" : "Отметить"} «${track.name}»`}
+                onClick={() => void open(track.id)}
+              >
+                <span className="daily-quick-name">{track.name}</span>
+                <span aria-hidden="true">
+                  {day.status === "reward"
+                    ? `✓ +${day.event!.amount}`
+                    : day.status === "zero"
+                      ? "✓ 0"
+                      : day.status === "draft"
+                        ? "⋯"
+                        : "○"}
+                </span>
+              </button>
+            );
+          })}
+          {!tracks.length && (
+            <p className="hint">Активных привычек пока нет.</p>
+          )}
+        </div>
+      )}
+      <p className="hint">
+        {data.city!.timezone}. Расписание — ваши записи, а не список
+        обязательств.
+      </p>
       <div id="today-list" hidden={collapsed}>
-        <p className="hint">
-          {data.city!.timezone}. Расписание — ваши записи, а не список
-          обязательств.
-        </p>
         {!tracks.length && (
           <p className="hint">
             Активных привычек пока нет. Их можно добавить через «Новое

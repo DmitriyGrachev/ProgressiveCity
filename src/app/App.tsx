@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import type { CityData } from "../domain/model";
 import { useCityData } from "./use-city-data";
 import { service } from "../storage/service";
 import { act, navigate, useUI, type Panel } from "./ui";
@@ -147,10 +148,21 @@ function Icon({ kind }: { kind: string }) {
   );
 }
 export function App() {
-  const data = useCityData();
+  const incoming = useCityData();
   const panel = useUI((s) => s.panel);
+  const lastCoherent = useRef<CityData | undefined>(undefined);
+  useEffect(() => {
+    if (incoming?.city) lastCoherent.current = incoming;
+  }, [incoming]);
+  // Keep layout drafts mounted while whole, epoch-matched subscriptions catch up.
+  const syncing =
+    !incoming &&
+    Boolean(lastCoherent.current) &&
+    (panel === "build" || panel === "districts");
+  const data = incoming ?? (syncing ? lastCoherent.current : undefined);
   const trackId = useUI((s) => s.trackId);
   const buildingId = useUI((s) => s.buildingId);
+  const buildRequestId = useUI((s) => s.buildRequestId);
   const objectId = useUI((s) => s.objectId);
   const error = useUI((s) => s.error);
   const comparison = useUI((s) => s.comparison);
@@ -170,9 +182,18 @@ export function App() {
         resultRequest: null,
         dayRequest: null,
         focus: null,
+        focusDistrict: null,
         workView: false,
         snapshotId: null,
         placement: null,
+        placementExpected: null,
+        ...(state.panel === "build"
+          ? {
+              buildingId: state.buildingId,
+              trackId: state.trackId,
+              objectId: state.objectId,
+            }
+          : {}),
         ...(["track", "library"].includes(state.panel ?? "")
           ? { panel: null }
           : {}),
@@ -217,207 +238,220 @@ export function App() {
   const track = data.tracks.find((t) => t.id === trackId);
   const building = data.buildings.find((b) => b.id === buildingId);
   return (
-    <div className="app-shell">
-      <header className="topbar">
-        <button
-          className="brand"
-          onClick={() => void navigate({ panel: null, noteId: null })}
+    <>
+      {syncing && (
+        <div className="city-sync" role="status">
+          Обновляем город. Открытая примерка сохранена в форме…
+        </div>
+      )}
+      <div className="app-shell" inert={syncing}>
+        <header className="topbar">
+          <button
+            className="brand"
+            onClick={() => void navigate({ panel: null, noteId: null })}
+          >
+            <Icon kind="build" />
+            <span>Progress City</span>
+          </button>
+          <span className="topbar-subtitle">
+            Место для того, чему вы учитесь
+          </span>
+          <SearchPalette key={data.storageEpoch} data={data} />
+          <span className="local-badge">
+            <span />
+            Сохранение на устройстве
+          </span>
+        </header>
+        {errorBanner}
+        <RecoveryTray />
+        <div
+          className={`workspace ${panel ? "panel-open" : ""} ${workView && !snapshotId && !comparison ? "work-view" : ""}`}
         >
-          <Icon kind="build" />
-          <span>Progress City</span>
-        </button>
-        <span className="topbar-subtitle">Место для того, чему вы учитесь</span>
-        <SearchPalette key={data.storageEpoch} data={data} />
-        <span className="local-badge">
-          <span />
-          Сохранение на устройстве
-        </span>
-      </header>
-      {errorBanner}
-      <RecoveryTray />
-      <div
-        className={`workspace ${panel ? "panel-open" : ""} ${workView && !snapshotId && !comparison ? "work-view" : ""}`}
-      >
-        <aside className="sidebar">
-          <nav aria-label="Основная навигация">
-            {navigation.map((n) => (
-              <button
-                className={panel === n.panel ? "active" : ""}
-                key={n.panel}
-                disabled={Boolean(comparison) && n.panel !== "history"}
-                onClick={() =>
-                  void navigate({
-                    panel: n.panel,
-                    noteId: null,
-                    ...(n.panel === "build" ? { buildingId: null } : {}),
-                  })
-                }
-              >
-                <Icon kind={n.symbol} />
-                <span>{n.title}</span>
-              </button>
-            ))}
-          </nav>
-          <div className="track-heading">
-            <span className="eyebrow">Направления</span>
-            <button
-              aria-label="Новое направление"
-              title="Новое направление"
-              disabled={Boolean(comparison)}
-              onClick={() =>
-                void navigate({
-                  panel: "track",
-                  trackId: null,
-                  objectId: null,
-                  resultRequest: null,
-                  noteId: null,
-                  buildingId: null,
-                })
-              }
-            >
-              +
-            </button>
-          </div>
-          <div className="track-nav">
-            {data.tracks
-              .filter((t) => archived || !t.archived)
-              .map((t) => (
+          <aside className="sidebar">
+            <nav aria-label="Основная навигация">
+              {navigation.map((n) => (
                 <button
-                  className={
-                    t.id === trackId && panel === "track" ? "active" : ""
-                  }
-                  key={t.id}
-                  disabled={Boolean(comparison)}
+                  className={panel === n.panel ? "active" : ""}
+                  key={n.panel}
+                  disabled={Boolean(comparison) && n.panel !== "history"}
                   onClick={() =>
                     void navigate({
-                      panel: "track",
-                      trackId: t.id,
-                      objectId: null,
-                      resultRequest: null,
+                      panel: n.panel,
                       noteId: null,
-                      buildingId:
-                        data.buildings.find((b) => b.trackId === t.id)?.id ??
-                        null,
+                      ...(n.panel === "build" ? { buildingId: null } : {}),
                     })
                   }
                 >
-                  <span className="track-initial" aria-hidden="true">
-                    {t.name.slice(0, 1).toLocaleUpperCase()}
-                  </span>
-                  <span>{t.name}</span>
-                  {t.archived && <small>архив</small>}
+                  <Icon kind={n.symbol} />
+                  <span>{n.title}</span>
                 </button>
               ))}
-          </div>
-          <label className="check archive-toggle">
-            <input
-              type="checkbox"
-              checked={archived}
-              onChange={(e) => setArchived(e.target.checked)}
-            />
-            Архив направлений
-          </label>
-          <div className="sidebar-footer">
-            <QuickBackup />
-            <span>Ваши материалы — ваш путь.</span>
-            {document
-              .querySelector('meta[name="progress-city-build"]')
-              ?.getAttribute("content") && (
-              <small>
-                Сборка{" "}
-                {document
-                  .querySelector('meta[name="progress-city-build"]')
-                  ?.getAttribute("content")}
-              </small>
-            )}
-            <button
-              className="text-button"
-              disabled={Boolean(comparison)}
-              onClick={() => void navigate({ panel: "settings", noteId: null })}
-            >
-              Не забудьте резервную копию
-            </button>
-          </div>
-        </aside>
-        <main className="city-stage">
-          <div
-            className="daily-panels"
-            hidden={Boolean(panel || snapshotId || comparison)}
-          >
-            <ContinuePanel
-              data={data}
-              hidden={Boolean(panel || snapshotId || comparison)}
-            />
-            <TodayPanel
-              data={data}
-              hidden={Boolean(panel || snapshotId || comparison)}
-            />
-          </div>
-          <CityCanvas />
-        </main>
-        {panel && (
-          <aside className="detail-panel" aria-label="Панель города">
-            {workView && !snapshotId && !comparison && (
-              <div className="work-view-bar">
-                <span className="eyebrow">Рабочий вид</span>
-                <div className="row wrap">
+            </nav>
+            <div className="track-heading">
+              <span className="eyebrow">Направления</span>
+              <button
+                aria-label="Новое направление"
+                title="Новое направление"
+                disabled={Boolean(comparison)}
+                onClick={() =>
+                  void navigate({
+                    panel: "track",
+                    trackId: null,
+                    objectId: null,
+                    resultRequest: null,
+                    noteId: null,
+                    buildingId: null,
+                  })
+                }
+              >
+                +
+              </button>
+            </div>
+            <div className="track-nav">
+              {data.tracks
+                .filter((t) => archived || !t.archived)
+                .map((t) => (
                   <button
-                    onClick={() => void setWorkView(false, data.storageEpoch)}
-                  >
-                    Свернуть рабочий вид
-                  </button>
-                  <button
+                    className={
+                      t.id === trackId && panel === "track" ? "active" : ""
+                    }
+                    key={t.id}
+                    disabled={Boolean(comparison)}
                     onClick={() =>
                       void navigate({
-                        panel: null,
-                        noteId: null,
+                        panel: "track",
+                        trackId: t.id,
+                        objectId: null,
                         resultRequest: null,
+                        noteId: null,
+                        buildingId:
+                          data.buildings.find((b) => b.trackId === t.id)?.id ??
+                          null,
                       })
                     }
                   >
-                    Вернуться в город
+                    <span className="track-initial" aria-hidden="true">
+                      {t.name.slice(0, 1).toLocaleUpperCase()}
+                    </span>
+                    <span>{t.name}</span>
+                    {t.archived && <small>архив</small>}
                   </button>
-                </div>
-              </div>
-            )}
-            <button
-              className="close-panel"
-              aria-label="Закрыть панель"
-              onClick={() => void navigate({ panel: null, noteId: null })}
-            >
-              ×
-            </button>
-            {comparison && <ComparisonPanel data={data} />}
-            {!comparison &&
-              panel === "track" &&
-              (track ? (
-                <TrackPanel
-                  key={`${track.id}-${objectId ?? "initial"}`}
-                  data={data}
-                  track={track}
-                />
-              ) : (
-                <>
-                  <h2>Новое направление</h2>
-                  <TrackForm />
-                </>
-              ))}
-            {!comparison && panel === "library" && <Library data={data} />}
-            {!comparison && panel === "build" && (
-              <BuildPanel
-                key={building?.id ?? `new-${trackId}-${objectId}`}
-                data={data}
-                building={building}
+                ))}
+            </div>
+            <label className="check archive-toggle">
+              <input
+                type="checkbox"
+                checked={archived}
+                onChange={(e) => setArchived(e.target.checked)}
               />
-            )}
-            {!comparison && panel === "districts" && <Districts data={data} />}
-            {!comparison && panel === "history" && (
-              <History key={data.storageEpoch} data={data} />
-            )}
-            {!comparison && panel === "settings" && <Settings data={data} />}
+              Архив направлений
+            </label>
+            <div className="sidebar-footer">
+              <QuickBackup />
+              <span>Ваши материалы — ваш путь.</span>
+              {document
+                .querySelector('meta[name="progress-city-build"]')
+                ?.getAttribute("content") && (
+                <small>
+                  Сборка{" "}
+                  {document
+                    .querySelector('meta[name="progress-city-build"]')
+                    ?.getAttribute("content")}
+                </small>
+              )}
+              <button
+                className="text-button"
+                disabled={Boolean(comparison)}
+                onClick={() =>
+                  void navigate({ panel: "settings", noteId: null })
+                }
+              >
+                Не забудьте резервную копию
+              </button>
+            </div>
           </aside>
-        )}
+          <main className="city-stage">
+            <div
+              className="daily-panels"
+              hidden={Boolean(panel || snapshotId || comparison)}
+            >
+              <ContinuePanel
+                data={data}
+                hidden={Boolean(panel || snapshotId || comparison)}
+              />
+              <TodayPanel
+                data={data}
+                hidden={Boolean(panel || snapshotId || comparison)}
+              />
+            </div>
+            <CityCanvas pending={syncing} />
+          </main>
+          {panel && (
+            <aside className="detail-panel" aria-label="Панель города">
+              {workView && !snapshotId && !comparison && (
+                <div className="work-view-bar">
+                  <span className="eyebrow">Рабочий вид</span>
+                  <div className="row wrap">
+                    <button
+                      onClick={() => void setWorkView(false, data.storageEpoch)}
+                    >
+                      Свернуть рабочий вид
+                    </button>
+                    <button
+                      onClick={() =>
+                        void navigate({
+                          panel: null,
+                          noteId: null,
+                          resultRequest: null,
+                        })
+                      }
+                    >
+                      Вернуться в город
+                    </button>
+                  </div>
+                </div>
+              )}
+              <button
+                className="close-panel"
+                aria-label="Закрыть панель"
+                onClick={() => void navigate({ panel: null, noteId: null })}
+              >
+                ×
+              </button>
+              {comparison && <ComparisonPanel data={data} />}
+              {!comparison &&
+                panel === "track" &&
+                (track ? (
+                  <TrackPanel
+                    key={`${track.id}-${objectId ?? "initial"}`}
+                    data={data}
+                    track={track}
+                  />
+                ) : (
+                  <>
+                    <h2>Новое направление</h2>
+                    <TrackForm />
+                  </>
+                ))}
+              {!comparison && panel === "library" && <Library data={data} />}
+              {!comparison && panel === "build" && (
+                <BuildPanel
+                  key={`${buildRequestId}-${buildingId ?? `new-${trackId}-${objectId}`}`}
+                  data={data}
+                  building={building}
+                />
+              )}
+              {!comparison && panel === "districts" && (
+                <Districts data={data} />
+              )}
+              {!comparison && panel === "history" && (
+                <History key={data.storageEpoch} data={data} />
+              )}
+              {!comparison && panel === "settings" && <Settings data={data} />}
+            </aside>
+          )}
+        </div>
       </div>
-    </div>
+    </>
   );
 }

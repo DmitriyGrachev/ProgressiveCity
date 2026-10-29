@@ -1,6 +1,7 @@
 import {
   arrangeLabels,
   overlaps,
+  rightDockViewport,
   type LabelPosition,
   type ScreenRect,
 } from "./label-layout";
@@ -75,6 +76,7 @@ export class CityLabels {
     let top = 12,
       bottom = host.height - 12,
       right = host.width - 12;
+    const controls: ScreenRect[] = [];
     for (const el of this.host.parentElement!.querySelectorAll<HTMLElement>(
       ".map-heading,.comparison-controls,.map-controls,.layout-controls,.map-help,.return-present",
     )) {
@@ -86,7 +88,15 @@ export class CityLabels {
       const r = el.getBoundingClientRect();
       if (el.matches(".map-heading,.comparison-controls"))
         top = Math.max(top, r.bottom - host.top + 12);
-      else bottom = Math.min(bottom, r.top - host.top - 12);
+      else if (el.matches(".map-help"))
+        bottom = Math.min(bottom, r.top - host.top - 12);
+      else
+        controls.push({
+          x: r.left - host.left,
+          y: r.top - host.top,
+          width: r.width,
+          height: r.height,
+        });
     }
     const panel = this.host
       .closest(".app-shell")
@@ -96,12 +106,15 @@ export class CityLabels {
       if (r.left < host.right && r.right > host.left)
         right = Math.min(right, r.left - host.left - 12);
     }
-    return {
-      x: 12,
-      y: top,
-      width: Math.max(0, right - 12),
-      height: Math.max(0, bottom - top),
-    };
+    return rightDockViewport(
+      {
+        x: 12,
+        y: top,
+        width: Math.max(0, right - 12),
+        height: Math.max(0, bottom - top),
+      },
+      controls,
+    );
   }
   update(
     camera: { x: number; y: number; zoom: number },

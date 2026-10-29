@@ -443,14 +443,14 @@ export class CityService {
       .parse(input);
     await this.db.cities.update("city", input);
   }
-  placeBuilding(building: Building, epoch?: string) {
-    return this.planning.placeBuilding(building, epoch);
+  placeBuilding(building: Building, epoch?: string, expected?: Building) {
+    return this.planning.placeBuilding(building, epoch, expected);
   }
   removeBuilding(buildingId: string, epoch?: string) {
     return this.planning.removeBuilding(buildingId, epoch);
   }
-  saveDistrict(district: District, epoch?: string) {
-    return this.planning.saveDistrict(district, epoch);
+  saveDistrict(district: District, epoch?: string, expected?: District) {
+    return this.planning.saveDistrict(district, epoch, expected);
   }
   removeDistrict(districtId: string, epoch?: string) {
     return this.planning.removeDistrict(districtId, epoch);

@@ -11,7 +11,7 @@ import { ComparisonControls } from "./ComparisonControls";
 import { exitComparison } from "../app/comparison";
 import type { LabelMode } from "./CityLabels";
 const cancelPlacement = () => useUI.getState().set({ placement: null });
-export function CityCanvas() {
+export function CityCanvas({ pending = false }: { pending?: boolean }) {
   const host = useRef<HTMLDivElement>(null);
   const engine = useRef<CityEngine | null>(null);
   const selected = useUI((s) => s.buildingId);
@@ -55,6 +55,7 @@ export function CityCanvas() {
   );
   const fit = useUI((s) => s.fit);
   const focus = useUI((s) => s.focus);
+  const focusDistrict = useUI((s) => s.focusDistrict);
   useEffect(() => {
     const scene = new CityEngine(host.current!, {
       select: (b) => {
@@ -98,6 +99,7 @@ export function CityCanvas() {
           await service.placeBuilding(
             repeat ? { ...b, id: id() } : b,
             tool.placementEpoch,
+            tool.placementExpected ?? undefined,
           );
           if (!repeat && useUI.getState().placement === tool.placement)
             useUI.getState().set({
@@ -106,6 +108,7 @@ export function CityCanvas() {
               trackId: b.trackId ?? null,
               objectId: b.learningObjectId ?? null,
               resultRequest: null,
+              panel: null,
             });
         }),
       road: (b, cells) =>
@@ -172,8 +175,8 @@ export function CityCanvas() {
     });
   }, [rendering, comparisonScene, selected, placement, repeatPlacement]);
   useEffect(() => {
-    engine.current?.setBusy(history.busy || transitioning);
-  }, [history.busy, transitioning]);
+    engine.current?.setBusy(history.busy || transitioning || pending);
+  }, [history.busy, transitioning, pending]);
   useEffect(() => {
     if (fit) engine.current?.fitAll();
   }, [fit]);
@@ -189,6 +192,12 @@ export function CityCanvas() {
       useUI.getState().set({ focus: null });
     }
   }, [focus]);
+  useEffect(() => {
+    if (focusDistrict) {
+      engine.current?.focusDistrict(focusDistrict);
+      useUI.getState().set({ focusDistrict: null });
+    }
+  }, [focusDistrict]);
   return (
     <div className={`map-wrap${snapshotId ? " snapshot-view" : ""}`}>
       {comparison ? (
@@ -206,19 +215,28 @@ export function CityCanvas() {
       <div ref={host} className="city-canvas" />
       {!comparison && (
         <LayoutControls
+          paused={pending}
           epoch={sceneData?.data.storageEpoch}
           cancel={cancelPlacement}
         />
       )}
       <div className="map-controls">
         <button
+          className="fit-progress"
+          onClick={() => engine.current?.fitProgress()}
+        >
+          Мои постройки
+        </button>
+        <button
           aria-label="Приблизить"
+          className="zoom-control"
           onClick={() => engine.current?.zoomBy(1.25)}
         >
           +
         </button>
         <button
           aria-label="Отдалить"
+          className="zoom-control"
           onClick={() => engine.current?.zoomBy(0.8)}
         >
           −
@@ -228,6 +246,7 @@ export function CityCanvas() {
         </button>
         <button
           aria-label="Показать весь город"
+          className="all-map-control"
           title="Показать всю карту"
           onClick={() => engine.current?.fitAll()}
         >

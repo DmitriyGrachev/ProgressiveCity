@@ -1,5 +1,13 @@
-import { useState } from "react";
-import { id, labels, type CityData, type Track } from "../domain/model";
+import { useRef, useState } from "react";
+import {
+  id,
+  isLearning,
+  labels,
+  type CityData,
+  type Track,
+} from "../domain/model";
+import { localDate } from "../domain/rules";
+import { openHabitDay } from "../app/habits";
 import { act, navigate, transition, useUI } from "../app/ui";
 import { service } from "../storage/service";
 import { NoteEditor } from "../notes/LazyNoteEditor";
@@ -10,6 +18,7 @@ export function TrackPanel({ data, track }: { data: CityData; track: Track }) {
   const [tab, setTab] = useState<"notes" | "results" | "edit">("notes");
   const [busy, setBusy] = useState(false);
   const [upgradeId, setUpgradeId] = useState(id);
+  const development = useRef<HTMLDivElement>(null);
   const noteId = useUI((s) => s.noteId);
   const workView = useUI((s) => s.workView);
   const objectId = useUI((s) => s.objectId);
@@ -56,7 +65,7 @@ export function TrackPanel({ data, track }: { data: CityData; track: Track }) {
             этапы, а не прошлые редакции заметок.
           </p>
         )}
-        <div className="progress-strip">
+        <div className="progress-strip" ref={development} tabIndex={-1}>
           <span data-testid="stage">
             Этап <b>{stage}</b> / 3
           </span>
@@ -98,6 +107,20 @@ export function TrackPanel({ data, track }: { data: CityData; track: Track }) {
               : `Следующий этап стоит ${cost} очков. Развитие выбираете вы.`}
         </p>
         <div className="row wrap">
+          {!isLearning(track) && (
+            <button
+              disabled={readonly || track.archived}
+              onClick={() =>
+                void openHabitDay(
+                  track.id,
+                  localDate(data.city!.timezone),
+                  data.storageEpoch,
+                )
+              }
+            >
+              Отметить сегодня
+            </button>
+          )}
           {building ? (
             <>
               <button
@@ -248,9 +271,13 @@ export function TrackPanel({ data, track }: { data: CityData; track: Track }) {
         )}
         {activeTab === "results" && (
           <Activities
-            key={`${object?.id ?? track.id}-${resultNoteId ?? "manual"}-${dayRequest?.date ?? ""}-${dayRequest?.activityId ?? ""}`}
+            key={`${object?.id ?? track.id}-${resultNoteId ?? "manual"}-${dayRequest?.date ?? ""}-${dayRequest?.activityId ?? ""}-${dayRequest?.requestId ?? ""}`}
             data={data}
             track={track}
+            onDevelopment={() => {
+              development.current?.focus();
+              development.current?.scrollIntoView({ block: "start" });
+            }}
             object={object}
             initialRequest={resultRequest ?? undefined}
             dayRequest={dayRequest ?? undefined}

@@ -28,7 +28,9 @@ test("interactive canvas: hit testing after zoom/pan, placement, collisions, rem
   await expect
     .poll(async () => (await rows<Building>(page, "buildings"))[0].x)
     .toBe(16);
-  await page.getByRole("button", { name: "Закрыть панель" }).click();
+  await expect(
+    page.getByRole("complementary", { name: "Панель города", exact: true }),
+  ).toHaveCount(0);
   const canvas = page.locator("canvas");
   const before = await canvas.getAttribute("data-camera");
   const p = await gridPoint(page, 16.5, 17.5);
@@ -234,6 +236,9 @@ test("habit daily reward and rule changes remain idempotent in two real tabs", a
     .getByRole("button", { name: "Создать направление", exact: true })
     .click();
   await page.getByRole("button", { name: "Результаты", exact: true }).click();
+  await page
+    .getByRole("button", { name: "Подробная запись", exact: true })
+    .click();
   await page.getByLabel("Название результата").fill("Прогулка вместо телефона");
   await page.getByLabel("Что получилось").fill("Выбрал прогулку");
   await page.getByLabel("Я считаю свою цель выполненной").check();
@@ -265,6 +270,9 @@ test("habit daily reward and rule changes remain idempotent in two real tabs", a
     ),
   ).toHaveLength(1);
   await page.getByRole("button", { name: "Новая запись", exact: true }).click();
+  await page
+    .getByRole("button", { name: "Подробная запись", exact: true })
+    .click();
   await page.getByLabel("Название результата").fill("Ещё одна отметка");
   await page.getByLabel("Что получилось").fill("Честное дополнение");
   await page.getByLabel("Я считаю свою цель выполненной").check();

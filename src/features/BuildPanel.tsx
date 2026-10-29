@@ -23,6 +23,7 @@ export function BuildPanel({
   const currentObjectId = useUI((s) => s.objectId);
   const readonly = useUI((s) => Boolean(s.snapshotId || s.comparison));
   const placement = useUI((s) => s.placement);
+  const transitioning = useUI((s) => s.transitioning);
   const [kind, setKind] = useState<BuildingKind>(building?.kind ?? "workshop");
   const [trackId, setTrackId] = useState(
     building?.trackId ?? currentTrackId ?? "",
@@ -39,6 +40,11 @@ export function BuildPanel({
   const [x, setX] = useState(building?.x ?? 20);
   const [y, setY] = useState(building?.y ?? 20);
   const [buildingId] = useState(building?.id ?? id);
+  const [base, setBase] = useState({ building, epoch: data.storageEpoch });
+  const invalidated = base.epoch !== data.storageEpoch;
+  const changed = Boolean(
+    base.building && JSON.stringify(base.building) !== JSON.stringify(building),
+  );
   const progress = ["workshop", "library", "pavilion"].includes(kind);
   const available = data.tracks.filter(
     (t) =>
@@ -96,15 +102,14 @@ export function BuildPanel({
     setMessage("");
     setBusy(true);
     try {
-      await service.placeBuilding(b, data.storageEpoch);
-      useUI
-        .getState()
-        .set({
-          buildingId: b.id,
-          objectId: b.learningObjectId ?? null,
-          trackId: b.trackId ?? null,
-          placement: null,
-        });
+      await service.placeBuilding(b, base.epoch, base.building);
+      setBase({ building: b, epoch: base.epoch });
+      useUI.getState().set({
+        buildingId: b.id,
+        objectId: b.learningObjectId ?? null,
+        trackId: b.trackId ?? null,
+        placement: null,
+      });
       setMessage(text);
     } finally {
       setBusy(false);
@@ -143,6 +148,19 @@ export function BuildPanel({
         : {}),
     };
   };
+  function reloadFields() {
+    changeDraft();
+    setBase({ building, epoch: data.storageEpoch });
+    setKind(building?.kind ?? "workshop");
+    setName(building?.name ?? "");
+    setTrackId(building?.trackId ?? currentTrackId ?? "");
+    setObjectId(building?.learningObjectId ?? currentObjectId ?? "");
+    setColor(building?.color ?? palettes[0]);
+    setColorText(building?.color ?? palettes[0]);
+    setPreviewStage(null);
+    setX(building?.x ?? 20);
+    setY(building?.y ?? 20);
+  }
   return (
     <>
       <span className="eyebrow">Свободная планировка</span>
@@ -153,7 +171,38 @@ export function BuildPanel({
           для изменений.
         </p>
       )}
-      <fieldset disabled={readonly || busy}>
+      {(changed || invalidated) && (
+        <div className="notice">
+          <p>
+            Сохранённое оформление изменилось или город заменён. Ваши поля
+            остались в форме. Скопируйте нужный текст перед загрузкой актуальных
+            полей.
+          </p>
+          <button
+            disabled={
+              busy || transitioning || Boolean(base.building && !building)
+            }
+            onClick={reloadFields}
+          >
+            Загрузить актуальные поля
+          </button>
+          {base.building && !building && (
+            <p>
+              Объект снят с карты. Закройте форму; её сохранение не вернёт
+              удалённый объект.
+            </p>
+          )}
+        </div>
+      )}
+      <fieldset
+        disabled={
+          readonly ||
+          busy ||
+          transitioning ||
+          invalidated ||
+          Boolean(base.building && !building)
+        }
+      >
         <legend>Архитектура и оформление</legend>
         <BuildingCatalog
           kinds={kinds}
@@ -335,20 +384,7 @@ export function BuildPanel({
             ? "Примерка цвета не сохраняется автоматически."
             : "Нужны # и шесть цифр 0–9 или букв A–F. Например, #327A91."}
         </p>
-        <button
-          type="button"
-          className="text-button"
-          onClick={() => {
-            changeDraft();
-            setKind(building?.kind ?? "workshop");
-            setName(building?.name ?? "");
-            setColor(building?.color ?? palettes[0]);
-            setColorText(building?.color ?? palettes[0]);
-            setPreviewStage(null);
-            setX(building?.x ?? 20);
-            setY(building?.y ?? 20);
-          }}
-        >
+        <button type="button" className="text-button" onClick={reloadFields}>
           Сбросить примерку
         </button>
         <button
@@ -359,7 +395,8 @@ export function BuildPanel({
               useUI.getState().set({
                 placement: candidate(),
                 repeatPlacement: !building && !progress,
-                placementEpoch: data.storageEpoch,
+                placementEpoch: base.epoch,
+                placementExpected: base.building ?? null,
               });
             })
           }
@@ -431,7 +468,7 @@ export function BuildPanel({
               className="danger-text wide"
               onClick={() =>
                 void act(async () => {
-                  await service.removeBuilding(building.id, data.storageEpoch);
+                  await service.removeBuilding(building.id, base.epoch);
                   useUI.getState().set({ buildingId: null, placement: null });
                 })
               }

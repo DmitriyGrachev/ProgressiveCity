@@ -21,6 +21,7 @@ import {
 import { usePendingForm } from "../app/pending-forms";
 import { DevelopmentChoice } from "./Research";
 import { NextQuestionForm } from "./NextQuestionForm";
+import { HabitReceipt } from "./HabitReceipt";
 export function ActivityForm({
   data,
   track,
@@ -29,6 +30,7 @@ export function ActivityForm({
   initialRequest,
   dayRequest,
   fresh,
+  onDevelopment,
 }: {
   data: CityData;
   track: Track;
@@ -37,7 +39,9 @@ export function ActivityForm({
   initialRequest?: ResultRequest;
   dayRequest?: DayRequest;
   fresh: () => void;
+  onDevelopment?: () => void;
 }) {
+  const habit = ["habit", "reduce"].includes(track.type);
   const initialNote = data.notes.find(
     (n) =>
       n.id === initialRequest?.noteId &&
@@ -47,7 +51,7 @@ export function ActivityForm({
   const [title, setTitle] = useState(
     activity?.title ??
       (initialNote ? initialRequest?.title : undefined) ??
-      (dayRequest ? track.name : ""),
+      (dayRequest || habit ? track.name : ""),
   );
   const [result, setResult] = useState(activity?.result ?? "");
   const [kind, setKind] = useState<ResultKind>(activity?.kind ?? "explore");
@@ -64,6 +68,7 @@ export function ActivityForm({
   );
   const savedId = useRef(activity?.id);
   const [confirmed, setConfirmed] = useState(activity?.confirmed ?? false);
+  const [justConfirmed, setJustConfirmed] = useState(false);
   const [saved, setSaved] = useState(Boolean(activity));
   const [recordArchived, setRecordArchived] = useState(
     activity?.archived ?? false,
@@ -85,7 +90,7 @@ export function ActivityForm({
     };
   }, [data.city]);
   const invalidated = initialEpoch !== data.storageEpoch;
-  const habit = ["habit", "reduce"].includes(track.type);
+  const [details, setDetails] = useState(!habit);
   const transitioning = useUI((s) => s.transitioning);
   const fields = {
     title,
@@ -150,6 +155,7 @@ export function ActivityForm({
       if (confirm) {
         await service.confirmActivity(a.id, initialEpoch);
         setConfirmed(true);
+        setJustConfirmed(true);
         expected.current = { ...a, confirmed: true };
       }
     } finally {
@@ -222,35 +228,57 @@ export function ActivityForm({
           </button>
         </p>
       )}
+      {habit && (
+        <div className="row spread">
+          <p className="hint">
+            Дата: <time dateTime={date}>{date}</time>
+          </p>
+          <button
+            type="button"
+            aria-expanded={details}
+            aria-controls="activity-details"
+            disabled={busy || transitioning}
+            onClick={() => setDetails(!details)}
+          >
+            {details ? "Короткая запись" : "Подробная запись"}
+          </button>
+        </div>
+      )}
       <fieldset disabled={busy || transitioning || invalidated}>
-        <label>
-          Название результата
-          <input
-            maxLength={250}
-            value={title}
-            onChange={(e) => setTitle(e.target.value)}
-          />
-        </label>
-        <div className="row">
+        <div
+          id="activity-details"
+          className="activity-details"
+          hidden={!details}
+        >
           <label>
-            Дата результата
+            Название результата
             <input
-              type="date"
-              disabled={saved}
-              value={date}
-              onChange={(e) => setDate(e.target.value)}
+              maxLength={250}
+              value={title}
+              onChange={(e) => setTitle(e.target.value)}
             />
           </label>
-          <label>
-            Минуты, необязательно
-            <input
-              type="number"
-              min="0"
-              max="1440"
-              value={duration}
-              onChange={(e) => setDuration(e.target.value)}
-            />
-          </label>
+          <div className="row">
+            <label>
+              Дата результата
+              <input
+                type="date"
+                disabled={saved}
+                value={date}
+                onChange={(e) => setDate(e.target.value)}
+              />
+            </label>
+            <label>
+              Минуты, необязательно
+              <input
+                type="number"
+                min="0"
+                max="1440"
+                value={duration}
+                onChange={(e) => setDuration(e.target.value)}
+              />
+            </label>
+          </div>
         </div>
         <label>
           Что получилось
@@ -299,36 +327,38 @@ export function ActivityForm({
             </p>
           </>
         )}
-        {data.notes.some(
-          (n) => n.trackId === track.id && n.learningObjectId === object?.id,
-        ) && (
-          <fieldset>
-            <legend>Связанные материалы</legend>
-            {data.notes
-              .filter(
-                (n) =>
-                  n.trackId === track.id && n.learningObjectId === object?.id,
-              )
-              .map((n) => (
-                <label className="check" key={n.id}>
-                  <input
-                    type="checkbox"
-                    checked={noteIds.includes(n.id)}
-                    onChange={(e) =>
-                      setNoteIds(
-                        e.target.checked
-                          ? [...noteIds, n.id]
-                          : noteIds.filter((v) => v !== n.id),
-                      )
-                    }
-                  />
-                  {n.id === initialRequest?.noteId
-                    ? initialRequest.title
-                    : n.title}
-                </label>
-              ))}
-          </fieldset>
-        )}
+        <div className="activity-details" hidden={!details}>
+          {data.notes.some(
+            (n) => n.trackId === track.id && n.learningObjectId === object?.id,
+          ) && (
+            <fieldset>
+              <legend>Связанные материалы</legend>
+              {data.notes
+                .filter(
+                  (n) =>
+                    n.trackId === track.id && n.learningObjectId === object?.id,
+                )
+                .map((n) => (
+                  <label className="check" key={n.id}>
+                    <input
+                      type="checkbox"
+                      checked={noteIds.includes(n.id)}
+                      onChange={(e) =>
+                        setNoteIds(
+                          e.target.checked
+                            ? [...noteIds, n.id]
+                            : noteIds.filter((v) => v !== n.id),
+                        )
+                      }
+                    />
+                    {n.id === initialRequest?.noteId
+                      ? initialRequest.title
+                      : n.title}
+                  </label>
+                ))}
+            </fieldset>
+          )}
+        </div>
         <div className="row wrap">
           <button
             disabled={busy || invalidated}
@@ -350,6 +380,16 @@ export function ActivityForm({
           {habit ? "Запись подтверждена." : "Результат подтверждён."} Дополнения
           и архивирование сохраняют прежнее начисление.
         </p>
+      )}
+      {confirmed && habit && !invalidated && (
+        <HabitReceipt
+          data={data}
+          track={track}
+          date={date}
+          activityId={savedId.current}
+          onDevelopment={onDevelopment}
+          focusAfterSave={justConfirmed}
+        />
       )}
       {confirmed && object && !invalidated && (
         <NextQuestionForm
@@ -383,12 +423,14 @@ export function Activities({
   object,
   initialRequest,
   dayRequest,
+  onDevelopment,
 }: {
   data: CityData;
   track: Track;
   object?: LearningObject;
   initialRequest?: ResultRequest;
   dayRequest?: DayRequest;
+  onDevelopment?: () => void;
 }) {
   const [selected, setSelected] = useState<string | null>(
     dayRequest?.activityId ?? null,
@@ -408,6 +450,7 @@ export function Activities({
         object={object}
         initialRequest={prefill}
         dayRequest={dayPrefill}
+        onDevelopment={onDevelopment}
         fresh={() =>
           void transition(async () => {
             setSelected(null);

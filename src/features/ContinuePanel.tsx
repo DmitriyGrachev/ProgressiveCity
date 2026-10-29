@@ -11,7 +11,7 @@ export function ContinuePanel({
   data: CityData;
   hidden: boolean;
 }) {
-  const [collapsed, setCollapsed] = useState(false);
+  const [collapsed, setCollapsed] = useState(true);
   const busy = useUI((s) => s.transitioning);
   const { tracks, learningObjects, notes, activities, events } = data;
   const recent = useMemo(
@@ -32,6 +32,27 @@ export function ContinuePanel({
           {collapsed ? "Развернуть продолжение" : "Свернуть продолжение"}
         </button>
       </div>
+      {collapsed &&
+        (recent.length ? (
+          <div className="daily-quick-actions">
+            <button
+              disabled={busy}
+              title={recent[0].object.name}
+              onClick={() =>
+                void continueResearch(recent[0].object.id, data.storageEpoch)
+              }
+            >
+              <span className="daily-quick-name">
+                Продолжить «{recent[0].object.name}»
+              </span>
+            </button>
+            {recent.length > 1 && (
+              <small>Ещё {recent.length - 1} — в полном списке</small>
+            )}
+          </div>
+        ) : (
+          <p className="hint">Учебной работы пока нет. Начните с материала.</p>
+        ))}
       <div id="continue-research-list" hidden={collapsed}>
         {!recent.length ? (
           <p className="hint">

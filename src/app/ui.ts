@@ -1,7 +1,7 @@
 import { create } from "zustand";
 import { resolvePendingForms } from "./pending-forms";
 import { db } from "../storage/db";
-import type { Building } from "../domain/model";
+import { id, type Building } from "../domain/model";
 import type { ComparisonSession, ComparisonView } from "../domain/comparison";
 export type Panel =
   "track" | "library" | "build" | "districts" | "history" | "settings";
@@ -11,6 +11,7 @@ export interface ResultRequest {
   epoch: string;
 }
 export interface DayRequest {
+  requestId: string;
   trackId: string;
   date: string;
   activityId?: string;
@@ -24,9 +25,11 @@ interface UI {
   dayRequest: DayRequest | null;
   noteId: string | null;
   buildingId: string | null;
+  buildRequestId: string;
   placement: Building | null;
   repeatPlacement: boolean;
   placementEpoch: string | null;
+  placementExpected: Building | null;
   snapshotId: string | null;
   comparison: ComparisonSession | null;
   comparisonView: ComparisonView;
@@ -34,6 +37,7 @@ interface UI {
   comparisonSelection: string | null;
   fit: number;
   focus: string | null;
+  focusDistrict: string | null;
   error: string;
   transitioning: boolean;
   workView: boolean;
@@ -47,9 +51,11 @@ export const useUI = create<UI>((set) => ({
   dayRequest: null,
   noteId: null,
   buildingId: null,
+  buildRequestId: "",
   placement: null,
   repeatPlacement: false,
   placementEpoch: null,
+  placementExpected: null,
   snapshotId: null,
   comparison: null,
   comparisonView: "changes",
@@ -57,6 +63,7 @@ export const useUI = create<UI>((set) => ({
   comparisonSelection: null,
   fit: 0,
   focus: null,
+  focusDistrict: null,
   error: "",
   transitioning: false,
   workView: false,
@@ -84,6 +91,9 @@ export async function navigate(patch: Partial<Omit<UI, "set">>) {
     useUI.getState().set({
       dayRequest: null,
       ...patch,
+      ...(patch.panel === "build"
+        ? { buildRequestId: id(), placement: null, placementExpected: null }
+        : {}),
       ...(leaveWork ? { workView: false } : {}),
       error: "",
     });

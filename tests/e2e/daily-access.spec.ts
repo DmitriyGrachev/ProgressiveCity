@@ -179,6 +179,9 @@ test("today keeps an open date across midnight and timezone changes; two tabs an
     .fill("Отложил телефон");
   await page.getByLabel("Я считаю свою цель выполненной").check();
   await page.clock.fastForward(120000);
+  await page
+    .getByRole("button", { name: "Подробная запись", exact: true })
+    .click();
   await expect(
     page.getByRole("textbox", { name: "Дата результата", exact: true }),
   ).toHaveValue("2026-10-04");

@@ -156,14 +156,19 @@ export class LayoutService {
       }
     });
   }
-  placeBuilding(input: Building, epoch?: string) {
+  placeBuilding(input: Building, epoch?: string, expected?: Building) {
     const draft = { ...input };
+    const base = expected && { ...expected };
     return this.change(async () => {
+      const previous = await this.db.buildings.get(draft.id);
+      if (base && !same(previous, base))
+        throw new Error(
+          "Объект изменён или удалён в другой вкладке. Ваши поля остались в форме; загрузите актуальные поля.",
+        );
       const b = await this.validateBuilding(
         draft,
         await this.db.buildings.toArray(),
       );
-      const previous = await this.db.buildings.get(b.id);
       if (
         previous &&
         (previous.trackId !== b.trackId ||
@@ -220,12 +225,17 @@ export class LayoutService {
         };
     }, epoch);
   }
-  saveDistrict(input: District, epoch?: string) {
+  saveDistrict(input: District, epoch?: string, expected?: District) {
     const d = { ...input };
+    const base = expected && { ...expected };
     return this.change(async () => {
       dataSchema.shape.districts.element.parse(d);
       if (!d.name.trim()) throw new Error("Введите имя района.");
       const previous = await this.db.districts.get(d.id);
+      if (base && !same(previous, base))
+        throw new Error(
+          "Район изменён или удалён в другой вкладке. Ваши поля остались в форме; загрузите актуальные поля.",
+        );
       if (same(previous, d)) return;
       return {
         label: `Район: ${d.name}`,

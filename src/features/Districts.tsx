@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { id, type CityData, type District } from "../domain/model";
-import { act, useUI } from "../app/ui";
+import { act, navigate, useUI } from "../app/ui";
 import { service } from "../storage/service";
 const freshDistrict = (): District => ({
   id: id(),
@@ -13,6 +13,19 @@ const freshDistrict = (): District => ({
 });
 export function Districts({ data }: { data: CityData }) {
   const [draft, setDraft] = useState(freshDistrict);
+  const [base, setBase] = useState<{ district?: District; epoch: string }>({
+    epoch: data.storageEpoch,
+  });
+  const [busy, setBusy] = useState(false);
+  const current = data.districts.find((d) => d.id === base.district?.id);
+  const invalidated = base.epoch !== data.storageEpoch;
+  const changed = Boolean(
+    base.district && JSON.stringify(base.district) !== JSON.stringify(current),
+  );
+  function select(district?: District) {
+    setDraft(district ?? freshDistrict());
+    setBase({ district, epoch: data.storageEpoch });
+  }
   const readonly = useUI((s) => Boolean(s.snapshotId || s.comparison));
   return (
     <>
@@ -22,7 +35,25 @@ export function Districts({ data }: { data: CityData }) {
         Прямоугольные зоны не пересекаются. Здание относится к району,
         содержащему его опорную клетку X, Y.
       </p>
-      <fieldset disabled={readonly}>
+      {(changed || invalidated) && (
+        <div className="notice">
+          <p>
+            Сохранённый район изменился или город заменён. Ваши поля остались в
+            форме. Скопируйте нужный текст перед загрузкой актуальных полей.
+          </p>
+          <button disabled={busy || !current} onClick={() => select(current)}>
+            Загрузить актуальные поля
+          </button>
+          {base.district && !current && (
+            <p>Район удалён. Выберите другой район или создайте новый.</p>
+          )}
+        </div>
+      )}
+      <fieldset
+        disabled={
+          readonly || busy || invalidated || Boolean(base.district && !current)
+        }
+      >
         <legend>Зона района</legend>
         <label>
           Имя района
@@ -59,21 +90,28 @@ export function Districts({ data }: { data: CityData }) {
         <div className="row">
           <button
             className="primary"
-            onClick={() =>
+            onClick={() => {
+              setBusy(true);
               void act(async () => {
-                await service.saveDistrict(draft, data.storageEpoch);
-                setDraft(freshDistrict());
-              })
-            }
+                await service.saveDistrict(draft, base.epoch, base.district);
+                select();
+              }).finally(() => setBusy(false));
+            }}
           >
             Сохранить район
           </button>
-          <button onClick={() => setDraft(freshDistrict())}>Новый район</button>
         </div>
       </fieldset>
+      <button disabled={readonly || busy} onClick={() => select()}>
+        Новый район
+      </button>
       {data.districts.map((d) => (
         <div className="district-row" key={d.id}>
-          <button className="list-row" onClick={() => setDraft(d)}>
+          <button
+            className="list-row"
+            disabled={busy}
+            onClick={() => select(d)}
+          >
             <span className="color-dot" style={{ background: d.color }} />
             <span>
               {d.name}
@@ -90,6 +128,14 @@ export function Districts({ data }: { data: CityData }) {
                 }
               </small>
             </span>
+          </button>
+          <button
+            onClick={() =>
+              void navigate({ focusDistrict: d.id, panel: null, noteId: null })
+            }
+            aria-label={`Показать район «${d.name}»`}
+          >
+            На карте
           </button>
           <button
             disabled={readonly}

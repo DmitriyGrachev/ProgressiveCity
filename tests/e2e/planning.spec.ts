@@ -213,7 +213,9 @@ test("convenient planning: road gesture, serial decor, move undo redo and durabl
     )
     .toBe(18);
   expect(await preserved()).toEqual(before);
-  await page.getByRole("button", { name: "Закрыть панель" }).click();
+  await page
+    .getByRole("button", { name: "Progress City", exact: true })
+    .click();
   await page.screenshot({ path: "docs/review-evidence/planning-city.png" });
   await page.setViewportSize({ width: 390, height: 844 });
   await expect(undo).toBeVisible();

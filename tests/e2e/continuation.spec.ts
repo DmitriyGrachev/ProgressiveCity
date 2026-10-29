@@ -231,6 +231,9 @@ test("recent cards ignore archived directions and continue the correct material 
     }
   });
   const cards = page.locator(".continue-cards article");
+  await page
+    .getByRole("button", { name: "Развернуть продолжение", exact: true })
+    .click();
   await expect(cards).toHaveCount(3);
   await expect(cards.locator("h3")).toHaveText([
     "Исследование 2",
