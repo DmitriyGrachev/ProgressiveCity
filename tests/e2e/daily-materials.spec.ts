@@ -74,9 +74,12 @@ test("quick backup verifies a file without replacing the current city and reject
       mimeType: "application/zip",
       buffer: zip,
     });
-  await expect(page.locator(".quick-backup [role=status]")).toContainText(
-    "Текущий город не заменён",
-  );
+  await expect(
+    page.getByRole("status", {
+      name: "Результат проверки архива",
+      exact: true,
+    }),
+  ).toContainText("Текущий город не заменён");
   expect(await rows(page, "metadata")).toEqual(before);
   await page.getByRole("button", { name: "Копия", exact: true }).click();
   const material = page.waitForEvent("download");

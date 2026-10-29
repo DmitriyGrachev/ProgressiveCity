@@ -1,8 +1,8 @@
 import { strToU8 } from "fflate";
 import type { Attachment } from "../domain/model";
 import {
-  ARCHIVE_LIMIT,
-  EXPANDED_LIMIT,
+  archiveLimits,
+  type ArchiveVersion,
   ArchiveLimitError,
   archiveFileLimit,
   encodeArchiveData,
@@ -18,7 +18,7 @@ export interface ManifestFile {
 /** Shared manifest encoding keeps admission and the actual writer in agreement. */
 export function encodeManifest(
   files: ManifestFile[],
-  version: 1 | 2,
+  version: ArchiveVersion,
   exportedAt: string,
 ) {
   // The archive schema uses four-digit years. A fixed-width timestamp makes the
@@ -34,7 +34,7 @@ export function encodeManifest(
 export function prepareArchive(
   data: { attachments: AttachmentMetadata[] },
   attachments: readonly Attachment[],
-  version: 1 | 2,
+  version: ArchiveVersion,
 ) {
   const dataBytes = encodeArchiveData(data);
   const metadata = new Map(data.attachments.map((a) => [a.id, a]));
@@ -83,13 +83,16 @@ export function prepareArchive(
     expandedSize += size;
     // fflate zipSync({level: 0}), no extras/comments/descriptors/ZIP64:
     // local header 30 + central-directory header 46 + UTF-8 name twice.
-    zipSize += size + 76 + 2 * strToU8(path).length;
+    zipSize += size + (version === 3 ? 92 : 76) + 2 * strToU8(path).length;
   }
-  if (expandedSize > EXPANDED_LIMIT)
-    throw new ArchiveLimitError("Распакованный архив превышает 128 MiB.");
-  if (zipSize > ARCHIVE_LIMIT)
+  const limits = archiveLimits(version);
+  if (expandedSize > limits.expanded)
     throw new ArchiveLimitError(
-      "Общий ZIP с изображениями и служебными данными превышает 64 MiB.",
+      `Распакованный архив превышает ${limits.expanded / 1024 / 1024} MiB.`,
+    );
+  if (zipSize > limits.zip)
+    throw new ArchiveLimitError(
+      `Общий ZIP с изображениями и служебными данными превышает ${limits.zip / 1024 / 1024} MiB.`,
     );
   return { dataBytes, exportedAt, zipSize };
 }

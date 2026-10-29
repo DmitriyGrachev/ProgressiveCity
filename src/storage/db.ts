@@ -17,6 +17,11 @@ import type { ArchiveData as LegacyData } from "./legacy-validation";
 import { dataSchema, validateRelations } from "./validation";
 import { ArchiveLimitError, MigrationLimitError } from "./limits";
 import { prepareArchive } from "./archive-format";
+import type {
+  RecoveryRecord,
+  RecoveryAttachment,
+  ClientState,
+} from "./recovery-journal";
 
 export class CityDB extends Dexie {
   cities!: EntityTable<City, "id">;
@@ -30,6 +35,9 @@ export class CityDB extends Dexie {
   events!: EntityTable<ProgressEvent, "id">;
   snapshots!: EntityTable<Snapshot, "id">;
   metadata!: EntityTable<{ id: "epoch"; value: string }, "id">;
+  recovery!: EntityTable<RecoveryRecord, "id">;
+  recoveryAttachments!: EntityTable<RecoveryAttachment, "id">;
+  clientState!: EntityTable<ClientState, "id">;
   constructor(name = "progress-city-v1") {
     super(name);
     this.version(1).stores({
@@ -116,9 +124,29 @@ export class CityDB extends Dexie {
         ] as const)
           await transaction.table(key).bulkPut(data[key]);
       });
+    this.version(3).stores({
+      recovery: "id,epoch,updatedAt",
+      recoveryAttachments: "id,epoch",
+      clientState: "id",
+    });
+  }
+  get cityTables() {
+    return [
+      this.cities,
+      this.tracks,
+      this.learningObjects,
+      this.buildings,
+      this.districts,
+      this.notes,
+      this.attachments,
+      this.activities,
+      this.events,
+      this.snapshots,
+      this.metadata,
+    ];
   }
   async read(): Promise<CityData> {
-    return this.transaction("r", this.tables, async () => {
+    return this.transaction("r", this.cityTables, async () => {
       const [
         city,
         tracks,

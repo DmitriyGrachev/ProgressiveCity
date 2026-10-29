@@ -8,12 +8,14 @@ export function BuildingCatalog({
   color,
   stage,
   onChange,
+  owned,
 }: {
   kinds: BuildingKind[];
   kind: BuildingKind;
   color: string;
   stage: number;
   onChange: (kind: BuildingKind) => void;
+  owned?: boolean;
 }) {
   const group = useId();
   return (
@@ -43,6 +45,7 @@ export function BuildingCatalog({
               kind={value}
               color={color}
               stage={progress ? stage : 1}
+              owned={owned}
             />
             <b>{labels.buildings[value]}</b>
             <small>{size} клетки</small>

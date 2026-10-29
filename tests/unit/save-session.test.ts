@@ -12,6 +12,37 @@ const note: Note = {
   updatedAt: "",
   revision: 0,
 };
+it("journals the latest draft with its advanced base revision when the next main save fails", async () => {
+  let release!: () => void;
+  const gate = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  let calls = 0;
+  const observed: { note: Note; dirty: boolean }[] = [];
+  const session = new SaveSession(
+    note,
+    async (n) => {
+      if (++calls === 1) {
+        await gate;
+        return { ...n, revision: 1 };
+      }
+      throw new Error("Synthetic write failure");
+    },
+    () => {},
+    (draft, dirty) => observed.push({ note: structuredClone(draft), dirty }),
+  );
+  session.update({ text: "Первый ввод" });
+  const saving = session.flush();
+  session.update({ text: "Самый новый ввод" });
+  release();
+  await expect(saving).rejects.toThrow("Synthetic");
+  expect(observed.at(-1)).toMatchObject({
+    note: { text: "Самый новый ввод", revision: 1 },
+    dirty: true,
+  });
+  session.dispose();
+});
+
 it("keeps newer draft edits dirty when an older conflicting copy finishes", async () => {
   const written: Note[] = [];
   const session = new SaveSession(

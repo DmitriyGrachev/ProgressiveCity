@@ -1,5 +1,9 @@
-import { useEffect, useId, useRef } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import { create } from "zustand";
+import { RecoveryWriter, type ProtectionStatus } from "../notes/durable";
+import { RecoveryJournal } from "../storage/recovery-journal";
+import { db } from "../storage/db";
+import { useFormRecovery } from "./form-recovery";
 
 interface PendingForm {
   label: string;
@@ -8,16 +12,25 @@ interface PendingForm {
   text: string;
   save: () => Promise<void>;
   discard: () => void;
+  recovery?: {
+    context: string;
+    state: Record<string, unknown>;
+    restore: (state: Record<string, unknown>) => void;
+  };
 }
 interface RecoveredForm {
   id: string;
   label: string;
   text: string;
+  forget: () => Promise<void>;
 }
 const forms = new Map<string, () => PendingForm>();
 const usePending = create<{ labels: string[]; recovered: RecoveredForm[] }>(
   () => ({ labels: [], recovered: [] }),
 );
+export function useMemoryRecoveredForms() {
+  return usePending((s) => s.recovered);
+}
 let decision: ((choice: "save" | "stay" | "discard") => void) | undefined;
 function decide(choice: "save" | "stay" | "discard") {
   const resolve = decision;
@@ -31,6 +44,56 @@ export function usePendingForm(form: PendingForm) {
   const key = useId();
   const current = useRef(form);
   current.current = form;
+  const [protection, setProtection] = useState<ProtectionStatus>(
+    "Нет незавершённого ввода",
+  );
+  const [writer] = useState(() => new RecoveryWriter(form.epoch));
+  const parent = useRef<{ id: string; sequence: number } | null>(null);
+  const request = useFormRecovery((s) => s.request);
+  const serialized = JSON.stringify({
+    kind: "form",
+    label: form.label,
+    text: form.text,
+    context: form.recovery?.context,
+    state: form.recovery?.state,
+  });
+  useEffect(() => {
+    writer.connect(setProtection);
+    return () => writer.detach();
+  }, [writer]);
+  useEffect(() => {
+    writer.update(form.dirty ? JSON.parse(serialized) : null);
+    const source = parent.current;
+    if (form.dirty && source) {
+      void writer
+        .flush()
+        .then(() =>
+          new RecoveryJournal(db).clearThrough(source.id, source.sequence),
+        )
+        .then(() => {
+          if (parent.current === source) parent.current = null;
+        })
+        .catch(() =>
+          setProtection("Не удалось убрать прежнюю аварийную копию"),
+        );
+    }
+  }, [serialized, form.dirty, writer]);
+  useEffect(() => {
+    const recovery = current.current.recovery;
+    if (
+      !recovery ||
+      !request ||
+      useFormRecovery.getState().request?.id !== request.id ||
+      request.epoch !== current.current.epoch ||
+      request.payload?.kind !== "form" ||
+      request.payload.context !== recovery.context ||
+      !request.payload.state
+    )
+      return;
+    recovery.restore(request.payload.state);
+    parent.current = { id: request.id, sequence: request.sequence };
+    useFormRecovery.setState({ request: null });
+  }, [request]);
   useEffect(() => {
     forms.set(key, () => current.current);
     return () => {
@@ -40,9 +103,10 @@ export function usePendingForm(form: PendingForm) {
           recovered: [
             ...state.recovered,
             {
-              id: key + Date.now(),
+              id: writer.id,
               label: last.label,
               text: last.text,
+              forget: () => writer.discard(),
             },
           ],
         }));
@@ -50,10 +114,24 @@ export function usePendingForm(form: PendingForm) {
       }
       forms.delete(key);
     };
-  }, [key]);
-  return () => {
+  }, [key, writer]);
+  const clean = () => {
     current.current = { ...current.current, dirty: false };
+    writer.update(null);
+    if (parent.current) {
+      const { id, sequence } = parent.current;
+      void new RecoveryJournal(db)
+        .clearThrough(id, sequence)
+        .then(() => {
+          if (parent.current?.id === id && parent.current.sequence === sequence)
+            parent.current = null;
+        })
+        .catch(() =>
+          setProtection("Не удалось убрать прежнюю аварийную копию"),
+        );
+    }
   };
+  return { clean, protection };
 }
 
 /** Called only after the single note editor has successfully flushed. */
@@ -87,6 +165,7 @@ export async function resolvePendingForms(): Promise<boolean> {
 
 export function PendingFormsUI() {
   const { labels, recovered } = usePending();
+  const [recoveryError, setRecoveryError] = useState("");
   const dialog = useRef<HTMLDialogElement>(null);
   const stay = useRef<HTMLButtonElement>(null);
   const open = labels.length > 0;
@@ -151,6 +230,7 @@ export function PendingFormsUI() {
           aria-label="Сохранённые тексты незавершённых форм"
         >
           <h2>Незавершённые формы прежнего города</h2>
+          {recoveryError && <p role="alert">{recoveryError}</p>}
           <p>
             Переход или импорт закрыл форму. Текст доступен для копирования; в
             новый город он не записан. Сохраните нужное до закрытия страницы.
@@ -179,11 +259,21 @@ export function PendingFormsUI() {
               </button>
               <button
                 onClick={() =>
-                  usePending.setState((state) => ({
-                    recovered: state.recovered.filter(
-                      (item) => item.id !== form.id,
-                    ),
-                  }))
+                  void form
+                    .forget()
+                    .then(() => {
+                      setRecoveryError("");
+                      usePending.setState((state) => ({
+                        recovered: state.recovered.filter(
+                          (item) => item.id !== form.id,
+                        ),
+                      }));
+                    })
+                    .catch(() =>
+                      setRecoveryError(
+                        "Не удалось удалить аварийную копию. Текст остаётся доступен.",
+                      ),
+                    )
                 }
               >
                 Убрать сохранённый текст

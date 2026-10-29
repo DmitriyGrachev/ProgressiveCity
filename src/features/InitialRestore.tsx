@@ -54,7 +54,7 @@ export function InitialRestore() {
                 void act(async () => {
                   const { replaceCity } = await loadBackup();
                   // Refuse to replace a city concurrently created in another tab through the initial screen.
-                  await db.transaction("rw", db.tables, async () => {
+                  await db.transaction("rw", db.cityTables, async () => {
                     if (await db.cities.count())
                       throw new Error(
                         "Город уже создан в другой вкладке. Откройте настройки для подтверждённой замены.",

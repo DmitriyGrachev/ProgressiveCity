@@ -13,6 +13,7 @@ import { service } from "../storage/service";
 import { NoteEditor } from "../notes/LazyNoteEditor";
 import { Activities } from "./ActivityForm";
 import { TrackForm } from "./TrackForm";
+import { HabitAdditions } from "./HabitAdditions";
 import { DevelopmentChoice, ResearchDetails, ResearchPicker } from "./Research";
 export function TrackPanel({ data, track }: { data: CityData; track: Track }) {
   const [tab, setTab] = useState<"notes" | "results" | "edit">("notes");
@@ -32,7 +33,10 @@ export function TrackPanel({ data, track }: { data: CityData; track: Track }) {
   const stage = object?.stage ?? track.stage;
   const readonly = useUI((s) => Boolean(s.snapshotId || s.comparison));
   const building = data.buildings.find(
-    (b) => b.trackId === track.id && b.learningObjectId === object?.id,
+    (b) =>
+      b.trackId === track.id &&
+      b.learningObjectId === object?.id &&
+      !b.habitAdditionId,
   );
   const note = data.notes.find((n) => n.id === noteId);
   const activeTab = readonly
@@ -91,7 +95,8 @@ export function TrackPanel({ data, track }: { data: CityData; track: Track }) {
                     undefined,
                     data.storageEpoch,
                   );
-                else await service.upgrade(track.id, upgradeId);
+                else
+                  await service.upgrade(track.id, upgradeId, data.storageEpoch);
                 setUpgradeId(id());
               }).finally(() => setBusy(false));
             }}
@@ -178,6 +183,9 @@ export function TrackPanel({ data, track }: { data: CityData; track: Track }) {
         )}
         {object && !object.built && activeTab !== "results" && !readonly && (
           <DevelopmentChoice data={data} track={track} />
+        )}
+        {!isLearning(track) && track.stage === 3 && (
+          <HabitAdditions data={data} track={track} readonly={readonly} />
         )}
       </section>
       <section className="research-materials">

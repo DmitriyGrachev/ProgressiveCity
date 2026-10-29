@@ -1,5 +1,13 @@
 # Progress City — отчёт для ревью
 
+## Долгое использование — 29.10.2026
+
+Пункты1–3 реализованы: постоянные аварийные черновики, библиотека/ZIP3/безопасная очистка/проверенная копия, оплаченные дополнения привычки без повторной оплаты при перестановке. **lint/typecheck/build PASS;145 unit/104 e2e/64 preview/6 Windows launcher PASS;3 Edge/NVIDIA dist PASS**, последовательные90–96 и100, exit0, без skipped/retries. Два финальных admission edge воспроизведены RED→GREEN; retry graph восстановлен без ослабления проверки.
+
+[Полная матрица, первые ошибки, пределы и запуск](LONG_TERM_REVIEW.md). Fingerprint 4c52ee8b2a37d2f4d9b7b1bb6843d9253b9277f386c44491d85139095225a3bd совпал до/после; реальные6PNG просмотрены. Экспорт72MiB в аппаратном Edge sample 1041.2ms, max interval 53.0ms; saved edit 891ms. Это ограниченные измерения, не сертификация всех устройств.
+
+Скриншоты: [каталог](review-evidence/long-term-catalog.png), [город](review-evidence/long-term-city.png), [узкий экран](review-evidence/long-term-narrow.png), [A/B](review-evidence/long-term-comparison.png), [аварийная копия](review-evidence/long-term-recovery.png), [библиотека](review-evidence/long-term-library.png). Личный5173/профиль/prepared.json сохранены; порты свободны. Git по standing AGENTS, SHA/remote status итоговым сообщением, без PR/deploy. Следующий A–D пока только спланирован. Ниже исторические отчёты.
+
 ## Город на первом плане — 29.10.2026
 
 Поверх075f2dd реализованы C1–C4: защита оформления здания/района/переноса от stale epoch/fields, компактные ежедневные входы, фокус прогресса/района, одна короткая/подробная форма привычки и квитанция сохранённого события. PC-QA-004 закрыт с unit и public UI регрессиями. Экономика, этапы, схема БД, ZIP и зависимости не менялись.

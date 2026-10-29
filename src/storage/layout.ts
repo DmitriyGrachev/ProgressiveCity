@@ -9,6 +9,7 @@ import { roadCellState, type Cell } from "../domain/roads";
 import { canPlace, MAP_SIZE } from "../domain/rules";
 import type { CityDB } from "./db";
 import { dataSchema } from "./validation";
+import { assertCityCapacity } from "./capacity";
 
 interface Delta<T> {
   before: T[];
@@ -101,12 +102,16 @@ export class LayoutService {
     dataSchema.shape.buildings.element.parse(b);
     const progress = ["workshop", "library", "pavilion"].includes(b.kind);
     const size = progress || ["park", "plaza"].includes(b.kind) ? 2 : 1;
-    if (progress !== Boolean(b.trackId) || b.w !== size || b.h !== size)
+    if (
+      (!b.habitAdditionId && progress !== Boolean(b.trackId)) ||
+      b.w !== size ||
+      b.h !== size
+    )
       throw new Error("Неверный размер или направление объекта.");
     if (!canPlace(b, all, b.id))
       throw new Error("Место занято или находится за пределами карты.");
     if (!b.trackId) {
-      if (b.learningObjectId)
+      if (b.learningObjectId || b.habitAdditionId)
         throw new Error("Декор не может принадлежать учебному объекту.");
       return b;
     }
@@ -114,6 +119,26 @@ export class LayoutService {
     if (!track) throw new Error("Направление не найдено.");
     if (track.archived && !restoring)
       throw new Error("Сначала верните направление из архива.");
+    if (b.habitAdditionId) {
+      const purchase = await this.db.events.get(b.habitAdditionId);
+      if (
+        isLearning(track) ||
+        track.stage !== 3 ||
+        b.learningObjectId ||
+        purchase?.type !== "habitAddition" ||
+        purchase.trackId !== track.id ||
+        purchase.additionKind !== b.kind
+      )
+        throw new Error("Тип и владелец оплаченного дополнения закреплены.");
+      if (
+        all.some(
+          (other) =>
+            other.id !== b.id && other.habitAdditionId === b.habitAdditionId,
+        )
+      )
+        throw new Error("Это дополнение уже размещено.");
+      return b;
+    }
     if (isLearning(track)) {
       const object = await this.db.learningObjects.get(
         b.learningObjectId ?? track.id,
@@ -131,7 +156,7 @@ export class LayoutService {
           other.id !== b.id &&
           (b.learningObjectId
             ? other.learningObjectId === b.learningObjectId
-            : other.trackId === b.trackId),
+            : other.trackId === b.trackId && !other.habitAdditionId),
       )
     )
       throw new Error("У этого объекта уже есть здание.");
@@ -141,7 +166,7 @@ export class LayoutService {
     return this.run(async () => {
       const command = await this.db.transaction(
         "rw",
-        this.db.tables,
+        this.db.cityTables,
         async () => {
           await this.checkEpoch(epoch);
           const command = await make();
@@ -172,6 +197,7 @@ export class LayoutService {
       if (
         previous &&
         (previous.trackId !== b.trackId ||
+          previous.habitAdditionId !== b.habitAdditionId ||
           previous.learningObjectId !== b.learningObjectId)
       )
         throw new Error("Связь существующего здания закреплена.");
@@ -191,6 +217,7 @@ export class LayoutService {
         draft.kind !== "road" ||
         draft.trackId ||
         draft.learningObjectId ||
+        draft.habitAdditionId ||
         !cells.length ||
         cells.length > (MAP_SIZE + 2) ** 2
       )
@@ -294,12 +321,13 @@ export class LayoutService {
       description,
       createdAt: now(),
     });
+    await assertCityCapacity(this.db);
   }
   private travel(reverse: boolean, epoch: string) {
     return this.run(async () => {
       const command = await this.db.transaction(
         "rw",
-        this.db.tables,
+        this.db.cityTables,
         async () => {
           await this.checkEpoch(epoch);
           const source = reverse ? this.undoStack : this.redoStack;

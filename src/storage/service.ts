@@ -6,6 +6,7 @@ import type {
   District,
   LearningObject,
   Note,
+  ProgressEvent,
   Track,
 } from "../domain/model";
 import { id, isLearning, now } from "../domain/model";
@@ -17,6 +18,7 @@ import { snapshotLayout } from "../domain/comparison";
 import { dataSchema, validateDocument } from "./validation";
 import { noteSchema } from "../notes/schema";
 import { addAttachment } from "./attachments";
+import { assertCityCapacity } from "./capacity";
 
 type TrackInput = Pick<
   Track,
@@ -42,12 +44,16 @@ export class CityService {
   attachImage(
     file: File,
     epoch: string,
-    retain?: (attachment: Attachment) => void,
+    retain?: (attachment: Attachment) => void | Promise<void>,
   ) {
     return addAttachment(this.db, file, epoch, retain);
   }
-  private transaction<T>(fn: () => Promise<T>) {
-    return this.db.transaction("rw", this.db.tables, fn);
+  private transaction<T>(fn: () => Promise<T>, capacity = true) {
+    return this.db.transaction("rw", this.db.cityTables, async () => {
+      const result = await fn();
+      if (capacity) await assertCityCapacity(this.db);
+      return result;
+    });
   }
   private async city() {
     const city = await this.db.cities.get("city");
@@ -271,7 +277,7 @@ export class CityService {
   async saveActivity(
     input: ActivityInput,
     expectedEpoch?: string,
-    expected?: Activity,
+    expected?: Activity | null,
   ): Promise<Activity> {
     if (!input.title.trim() || !validDate(input.date))
       throw new Error("Введите название и корректную дату.");
@@ -290,6 +296,41 @@ export class CityService {
       const track = await this.track(input.trackId);
       const object = await this.objectFor(track, input.learningObjectId);
       const old = input.id ? await this.db.activities.get(input.id) : undefined;
+      if (expected === null) {
+        if (!input.id) throw new Error("Для новой записи нужен постоянный ID.");
+        if (old) {
+          const candidate = {
+            ...input,
+            learningObjectId: object?.id,
+            timezone: input.timezone ?? city.timezone,
+            archived: input.archived ?? false,
+          };
+          const fields = [
+            "trackId",
+            "learningObjectId",
+            "title",
+            "result",
+            "kind",
+            "date",
+            "timezone",
+            "noteIds",
+            "duration",
+            "value",
+            "achieved",
+            "archived",
+          ] as const;
+          if (
+            fields.some(
+              (field) =>
+                JSON.stringify(old[field]) !== JSON.stringify(candidate[field]),
+            )
+          )
+            throw new Error(
+              "Запись с этим ID уже существует и изменена. Ваш ввод оставлен в форме; загрузите актуальную запись.",
+            );
+          return old;
+        }
+      }
       if (
         expected &&
         (!old ||
@@ -336,7 +377,7 @@ export class CityService {
       const activity: Activity = {
         ...input,
         ...(object ? { learningObjectId: object.id } : {}),
-        id: old?.id ?? id(),
+        id: old?.id ?? input.id ?? id(),
         timezone: old?.timezone ?? input.timezone ?? city.timezone,
         confirmed: old?.confirmed ?? false,
         archived: input.archived ?? old?.archived ?? false,
@@ -382,8 +423,64 @@ export class CityService {
       });
     });
   }
-  async upgrade(trackId: string, commandId: string) {
+  async buyHabitAddition(
+    trackId: string,
+    kind: "park" | "plaza" | "pavilion",
+    commandId: string,
+    epoch: string,
+  ) {
     return this.transaction(async () => {
+      await this.checkEpoch(epoch);
+      const eventId = `habit-addition:${commandId}`;
+      const previous = await this.db.events.get(eventId);
+      if (previous) {
+        if (
+          previous.type !== "habitAddition" ||
+          previous.trackId !== trackId ||
+          previous.additionKind !== kind
+        )
+          throw new Error("Команда уже относится к другой покупке.");
+        return previous;
+      }
+      const track = await this.track(trackId),
+        city = await this.city();
+      if (isLearning(track) || track.stage !== 3 || track.archived)
+        throw new Error(
+          "Дополнения доступны активной привычке третьего этапа.",
+        );
+      const cost = city.rules.constructionCost;
+      if (track.balance < cost)
+        throw new Error(`Нужно ${cost} очков развития.`);
+      const source = (
+        await this.db.events.where("trackId").equals(trackId).toArray()
+      )
+        .filter((e) => e.type === "activity" && e.amount > 0 && e.activityId)
+        .sort(
+          (a, b) =>
+            b.createdAt.localeCompare(a.createdAt) || b.id.localeCompare(a.id),
+        )[0];
+      if (!source)
+        throw new Error("Нужен сохранённый положительный результат привычки.");
+      const event: ProgressEvent = {
+        id: eventId,
+        type: "habitAddition",
+        additionKind: kind,
+        trackId,
+        sourceActivityId: source.activityId,
+        amount: -cost,
+        ruleVersion: city.rules.version,
+        description: `${track.name}: ${kind === "park" ? "сад" : kind === "plaza" ? "двор" : "павильон"}`,
+        createdAt: now(),
+      };
+      dataSchema.shape.events.element.parse(event);
+      await this.db.tracks.update(trackId, { balance: track.balance - cost });
+      await this.db.events.add(event);
+      return event;
+    });
+  }
+  async upgrade(trackId: string, commandId: string, epoch?: string) {
+    return this.transaction(async () => {
+      await this.checkEpoch(epoch);
       const track = await this.track(trackId);
       if (isLearning(track)) return this.upgradeObject(track.id, commandId);
       const eventId = `upgrade:${commandId}`;
@@ -441,7 +538,9 @@ export class CityService {
     dataSchema.shape.city
       .pick({ name: true, timezone: true, reducedMotion: true })
       .parse(input);
-    await this.db.cities.update("city", input);
+    await this.transaction(async () => {
+      await this.db.cities.update("city", input);
+    });
   }
   placeBuilding(building: Building, epoch?: string, expected?: Building) {
     return this.planning.placeBuilding(building, epoch, expected);
@@ -554,8 +653,13 @@ export class CityService {
         updatedAt: now(),
       };
       await this.db.notes.put(updated);
+      await assertCityCapacity(
+        this.db,
+        new TextEncoder().encode(JSON.stringify(updated)).length <
+          new TextEncoder().encode(JSON.stringify(current)).length,
+      );
       return updated;
-    });
+    }, false);
   }
 }
 export const service = new CityService(db);

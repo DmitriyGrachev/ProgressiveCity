@@ -21,6 +21,7 @@ interface UI {
   panel: Panel | null;
   trackId: string | null;
   objectId: string | null;
+  additionId: string | null;
   resultRequest: ResultRequest | null;
   dayRequest: DayRequest | null;
   noteId: string | null;
@@ -47,6 +48,7 @@ export const useUI = create<UI>((set) => ({
   panel: null,
   trackId: null,
   objectId: null,
+  additionId: null,
   resultRequest: null,
   dayRequest: null,
   noteId: null,
@@ -90,6 +92,7 @@ export async function navigate(patch: Partial<Omit<UI, "set">>) {
         patch.panel !== "library");
     useUI.getState().set({
       dayRequest: null,
+      additionId: null,
       ...patch,
       ...(patch.panel === "build"
         ? { buildRequestId: id(), placement: null, placementExpected: null }

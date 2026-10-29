@@ -128,8 +128,11 @@ export async function dailyJourney(page: Page) {
       mimeType: "application/zip",
       buffer: zip,
     });
-  await expect(page.locator(".quick-backup [role=status]")).toContainText(
-    "Текущий город не заменён",
-  );
+  await expect(
+    page.getByRole("status", {
+      name: "Результат проверки архива",
+      exact: true,
+    }),
+  ).toContainText("Текущий город не заменён");
   return zip;
 }

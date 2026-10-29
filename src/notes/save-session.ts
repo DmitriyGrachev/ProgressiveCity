@@ -14,6 +14,7 @@ export class SaveSession {
     note: Note,
     private save: (note: Note) => Promise<Note>,
     private status: (value: SaveStatus) => void,
+    private changed?: (note: Note, dirty: boolean) => void,
   ) {
     this.draft = structuredClone(note);
   }
@@ -21,6 +22,7 @@ export class SaveSession {
     this.draft = { ...this.draft, ...patch };
     this.dirty = true;
     this.version++;
+    this.changed?.(this.draft, true);
     this.status("Есть изменения");
     clearTimeout(this.timer);
     this.timer = setTimeout(() => {
@@ -44,6 +46,7 @@ export class SaveSession {
           this.draft.revision = saved.revision;
           this.draft.updatedAt = saved.updatedAt;
           this.dirty = this.version !== version;
+          this.changed?.(this.draft, this.dirty);
         }
         this.status("Сохранено");
       } catch (error) {
@@ -82,6 +85,7 @@ export class SaveSession {
       : structuredClone(note);
     this.dirty = newer;
     this.version++;
+    this.changed?.(this.draft, this.dirty);
     this.status(newer ? "Есть изменения" : "Сохранено");
   }
 }

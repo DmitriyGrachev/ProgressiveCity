@@ -29,7 +29,7 @@ export function HabitReceipt({
     }
   }, [focusAfterSave, eventId]);
   const building = data.buildings.find(
-    (b) => b.trackId === track.id && !b.learningObjectId,
+    (b) => b.trackId === track.id && !b.learningObjectId && !b.habitAdditionId,
   );
   if (!event)
     return (
@@ -58,13 +58,13 @@ export function HabitReceipt({
       </p>
       <p>
         {track.stage === 3
-          ? "Все три этапа открыты. Дальнейшие этапы пока не предусмотрены; записи и материалы остаются с вами."
+          ? "Все три этапа открыты. Накопленные очки можно вложить в сад, двор или павильон — в развитии привычки."
           : track.balance >= cost
             ? `Доступно улучшение за ${cost} очков. Развитие выбираете вы.`
             : `Для следующего этапа нужно ${cost} очков. Сейчас: ${track.balance}.`}
       </p>
       <div className="row wrap">
-        {track.stage < 3 && onDevelopment && (
+        {onDevelopment && (
           <button onClick={onDevelopment}>К развитию здания</button>
         )}
         {building ? (

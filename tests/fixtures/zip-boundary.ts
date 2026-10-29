@@ -45,13 +45,14 @@ const pixel = Uint8Array.from([
   ...chunk("IDAT", zlibSync(new Uint8Array(4))),
   ...chunk("IEND", new Uint8Array()),
 ]);
-function paddedPng(size: number) {
+export function paddedPng(size: number, variant = 0) {
   const bytes = new Uint8Array(size);
   const prefixLength = pixel.length - 12;
   bytes.set(pixel.subarray(0, prefixLength));
   const view = new DataView(bytes.buffer);
   view.setUint32(prefixLength, size - pixel.length - 12);
   bytes.set(strToU8("paDd"), prefixLength + 4);
+  bytes[prefixLength + 8] = variant % 256;
   view.setUint32(size - 16, crc32(bytes.subarray(prefixLength + 4, size - 16)));
   bytes.set(pixel.subarray(-12), size - 12);
   return bytes;

@@ -9,7 +9,13 @@ export { validateDocument } from "./legacy-validation";
 
 const identifier = legacySchema.shape.tracks.element.shape.id;
 const objectLink = { learningObjectId: identifier.optional() };
-const building = legacySchema.shape.buildings.element.extend(objectLink);
+const additionLink = {
+  habitAdditionId: legacySchema.shape.events.element.shape.id.optional(),
+};
+const building = legacySchema.shape.buildings.element.extend({
+  ...objectLink,
+  ...additionLink,
+});
 export const dataSchema = legacySchema.extend({
   city: legacySchema.shape.city.extend({
     rules: legacySchema.shape.city.shape.rules.extend({
@@ -41,7 +47,14 @@ export const dataSchema = legacySchema.extend({
     .array(
       legacySchema.shape.events.element.extend({
         ...objectLink,
-        type: z.enum(["activity", "upgrade", "construction", "layout"]),
+        type: z.enum([
+          "activity",
+          "upgrade",
+          "construction",
+          "layout",
+          "habitAddition",
+        ]),
+        additionKind: z.enum(["park", "plaza", "pavilion"]).optional(),
         sourceActivityId: identifier.optional(),
       }),
     )
@@ -52,7 +65,7 @@ export const dataSchema = legacySchema.extend({
         buildings: z
           .array(
             legacySchema.shape.snapshots.element.shape.buildings.element.extend(
-              objectLink,
+              { ...objectLink, ...additionLink },
             ),
           )
           .max(1600),
@@ -83,6 +96,11 @@ export function validateRelations(data: ArchiveData) {
   const notes = new Map(data.notes.map((n) => [n.id, n]));
   const activities = new Map(data.activities.map((a) => [a.id, a]));
   const events = new Map(data.events.map((e) => [e.id, e]));
+  const positiveActivities = new Set(
+    data.events
+      .filter((e) => e.type === "activity" && e.amount > 0)
+      .map((e) => e.activityId),
+  );
   const attachmentIds = new Set(data.attachments.map((a) => a.id));
   const validOwner = (
     trackId: string | undefined,
@@ -121,9 +139,11 @@ export function validateRelations(data: ArchiveData) {
     const placed = bs.flatMap((b) =>
       b.trackId
         ? [
-            b.learningObjectId
-              ? `object:${b.learningObjectId}`
-              : `track:${b.trackId}`,
+            b.habitAdditionId
+              ? `addition:${b.habitAdditionId}`
+              : b.learningObjectId
+                ? `object:${b.learningObjectId}`
+                : `track:${b.trackId}`,
           ]
         : [],
     );
@@ -140,11 +160,26 @@ export function validateRelations(data: ArchiveData) {
         !canPlace(b, bs, b.id) ||
         !validOwner(b.trackId, b.learningObjectId) ||
         (b.learningObjectId && !objects.get(b.learningObjectId)?.built) ||
-        progress !== Boolean(b.trackId) ||
+        (!b.habitAdditionId && progress !== Boolean(b.trackId)) ||
         b.w !== (progress || ["park", "plaza"].includes(b.kind) ? 2 : 1) ||
         b.h !== b.w
       )
         fail();
+      if (b.habitAdditionId) {
+        const owned = events.get(b.habitAdditionId),
+          track = tracks.get(b.trackId ?? "");
+        if (
+          !track ||
+          isLearning(track) ||
+          track.stage !== 3 ||
+          b.learningObjectId ||
+          owned?.type !== "habitAddition" ||
+          owned.trackId !== track.id ||
+          owned.additionKind !== b.kind ||
+          b.w !== 2
+        )
+          fail();
+      }
     }
     for (const d of ds) if (!canPlace(d, ds, d.id)) fail();
   };
@@ -152,9 +187,11 @@ export function validateRelations(data: ArchiveData) {
   for (const snapshot of data.snapshots) {
     checkLayout(snapshot.buildings, snapshot.districts);
     for (const building of snapshot.buildings) {
-      const currentStage = building.learningObjectId
-        ? objects.get(building.learningObjectId)?.stage
-        : (tracks.get(building.trackId ?? "")?.stage ?? 1);
+      const currentStage = building.habitAdditionId
+        ? 1
+        : building.learningObjectId
+          ? objects.get(building.learningObjectId)?.stage
+          : (tracks.get(building.trackId ?? "")?.stage ?? 1);
       if (!currentStage || building.stage > currentStage) fail();
     }
   }
@@ -187,6 +224,25 @@ export function validateRelations(data: ArchiveData) {
   }
   for (const e of data.events) {
     if (!validOwner(e.trackId, e.learningObjectId)) fail();
+    if (e.type === "habitAddition") {
+      const track = tracks.get(e.trackId ?? ""),
+        source = activities.get(e.sourceActivityId ?? "");
+      if (
+        !track ||
+        isLearning(track) ||
+        track.stage !== 3 ||
+        !e.additionKind ||
+        !e.id.startsWith("habit-addition:") ||
+        e.amount >= 0 ||
+        e.ruleVersion < 1 ||
+        e.learningObjectId ||
+        e.activityId ||
+        !source?.confirmed ||
+        source.trackId !== track.id ||
+        !positiveActivities.has(source.id)
+      )
+        fail();
+    } else if (e.additionKind) fail();
     if (
       e.type === "layout" &&
       (e.amount !== 0 ||
@@ -206,7 +262,7 @@ export function validateRelations(data: ArchiveData) {
       if (
         !source?.confirmed ||
         source.trackId !== e.trackId ||
-        !["upgrade", "construction"].includes(e.type)
+        !["upgrade", "construction", "habitAddition"].includes(e.type)
       )
         fail();
     }

@@ -1,15 +1,17 @@
 import { create } from "zustand";
 import { useEffect } from "react";
 import { strToU8, zipSync } from "fflate";
-import type { Attachment } from "../domain/model";
+import type { Attachment, Note } from "../domain/model";
 import type { SaveSession } from "./save-session";
 import { act } from "../app/ui";
+import { DurableRecoveryTray } from "./DurableRecoveryTray";
 
 export interface LocalDraft {
   id: string;
   session: SaveSession;
   attachments: Map<string, Attachment>;
   wait: () => Promise<unknown>;
+  forget?: () => Promise<void>;
 }
 const useRecovery = create<{ drafts: LocalDraft[] }>(() => ({ drafts: [] }));
 export function retainDraft(draft: LocalDraft) {
@@ -19,7 +21,15 @@ export function retainDraft(draft: LocalDraft) {
 }
 export async function exportDraft(draft: LocalDraft) {
   await draft.wait();
-  const note = structuredClone(draft.session.draft);
+  return exportRecoveredNote(draft.session.draft, [
+    ...draft.attachments.values(),
+  ]);
+}
+export async function exportRecoveredNote(
+  source: Note,
+  attachments: readonly Attachment[],
+) {
+  const note = structuredClone(source);
   const files: Record<string, Uint8Array> = {
     "note.json": strToU8(JSON.stringify(note, null, 2)),
     "note.txt": strToU8(`${note.title}\n\n${note.text}`),
@@ -28,7 +38,7 @@ export async function exportDraft(draft: LocalDraft) {
     ),
     "attachments.json": strToU8(
       JSON.stringify(
-        Array.from(draft.attachments.values()).map(({ id, name, mime }) => ({
+        attachments.map(({ id, name, mime }) => ({
           id,
           name,
           mime,
@@ -38,7 +48,7 @@ export async function exportDraft(draft: LocalDraft) {
       ),
     ),
   };
-  for (const a of draft.attachments.values()) {
+  for (const a of attachments) {
     const extension =
       a.mime === "image/png" ? "png" : a.mime === "image/webp" ? "webp" : "jpg";
     files[`attachments/${a.id}.${extension}`] = new Uint8Array(
@@ -58,7 +68,14 @@ export function RecoveryTray() {
     window.addEventListener("beforeunload", guard);
     return () => window.removeEventListener("beforeunload", guard);
   }, [drafts]);
-  if (!drafts.length) return null;
+  return (
+    <>
+      <DurableRecoveryTray excludeIds={drafts.map((d) => d.id)} />
+      {drafts.length > 0 && <MemoryRecovery drafts={drafts} />}
+    </>
+  );
+}
+function MemoryRecovery({ drafts }: { drafts: LocalDraft[] }) {
   return (
     <section className="recovery-tray" aria-label="Локальные черновики">
       <h2>Несохранённый материал</h2>
@@ -94,9 +111,12 @@ export function RecoveryTray() {
                     "Убрать локальный черновик из памяти? Убедитесь, что вы сохранили и открыли выгруженный ZIP.",
                   )
                 )
-                  useRecovery.setState((s) => ({
-                    drafts: s.drafts.filter((d) => d.id !== draft.id),
-                  }));
+                  void act(async () => {
+                    await draft.forget?.();
+                    useRecovery.setState((s) => ({
+                      drafts: s.drafts.filter((d) => d.id !== draft.id),
+                    }));
+                  });
               }}
             >
               Убрать после выгрузки

@@ -26,14 +26,20 @@ async function habit(page: Page) {
 test("city first: long research names keep compact controls within the narrow viewport", async ({
   page,
 }) => {
-  const name = "Свет и отражение — длинное название исследования с сохранёнными учебными материалами";
+  const name =
+    "Свет и отражение — длинное название исследования с сохранёнными учебными материалами";
   await createCity(page, name);
   await button(page, name).click();
   await button(page, "Новая заметка").click();
-  await page.getByRole("textbox", { name: "Текст заметки", exact: true }).fill("Синтетический материал для продолжения");
+  await page
+    .getByRole("textbox", { name: "Текст заметки", exact: true })
+    .fill("Синтетический материал для продолжения");
   await button(page, "Progress City").click();
   const resume = page.getByRole("region", { name: "Продолжить", exact: true });
-  const quick = resume.getByRole("button", { name: `Продолжить «${name}»`, exact: true });
+  const quick = resume.getByRole("button", {
+    name: `Продолжить «${name}»`,
+    exact: true,
+  });
   await expect(quick).toBeVisible();
   await expect(quick).toHaveAttribute("title", name);
   for (const width of [390, 320, 768, 1024, 1440]) {
@@ -45,10 +51,19 @@ test("city first: long research names keep compact controls within the narrow vi
           .map((el) => {
             const r = el.getBoundingClientRect();
             const p = panel.getBoundingClientRect();
-            return { name: el.getAttribute("aria-label") || el.textContent, fits: r.left >= p.left - 1 && r.right <= innerWidth + 1 && el.scrollWidth <= el.clientWidth + 1 };
+            return {
+              name: el.getAttribute("aria-label") || el.textContent,
+              fits:
+                r.left >= p.left - 1 &&
+                r.right <= innerWidth + 1 &&
+                el.scrollWidth <= el.clientWidth + 1,
+            };
           }),
       );
-      expect(bounds.filter((r) => !r.fits), `width ${width}`).toEqual([]);
+      expect(
+        bounds.filter((r) => !r.fits),
+        `width ${width}`,
+      ).toEqual([]);
     };
     await check();
     await button(page, "Развернуть продолжение").focus();
@@ -756,15 +771,16 @@ test("city first: final habit stage remains honest and confirmation after it pre
   await button(page, "Улучшить").click();
   await expect(page.getByTestId("stage")).toContainText("3");
   await expect(page.getByTestId("habit-receipt")).toContainText(
-    "Дальнейшие этапы пока не предусмотрены",
+    "Все три этапа открыты",
   );
   await expect(button(page, "Улучшить")).toBeDisabled();
-  await expect(button(page, "К развитию здания")).toHaveCount(0);
+  await expect(button(page, "К развитию здания")).toBeVisible();
+  await expect(button(page, "Приобрести сад · 3 очка")).toBeDisabled();
   await page.reload();
   await button(page, "Открыть «Прогулка»").click();
   await expect(page.getByTestId("stage")).toContainText("3");
   await expect(page.getByTestId("habit-receipt")).toContainText(
-    "Дальнейшие этапы пока не предусмотрены",
+    "Все три этапа открыты",
   );
   expect(
     (await rows<ProgressEvent>(page, "events")).filter(
@@ -797,6 +813,7 @@ test("city first: final habit stage remains honest and confirmation after it pre
   expect(
     (await rows<Track>(page, "tracks")).find((t) => t.name === "Прогулка"),
   ).toMatchObject({ stage: 3, balance: 3 });
+  await expect(button(page, "Приобрести сад · 3 очка")).toBeEnabled();
   expect(
     (await rows<ProgressEvent>(page, "events")).filter(
       (e) => e.type === "activity",

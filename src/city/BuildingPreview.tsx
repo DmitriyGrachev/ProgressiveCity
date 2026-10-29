@@ -6,15 +6,15 @@ import {
   type ArtVariant,
 } from "./preview-cache";
 
-export function BuildingPreview({ kind, color, stage }: ArtVariant) {
+export function BuildingPreview({ kind, color, stage, owned }: ArtVariant) {
   const renderer = useSyncExternalStore(subscribePreviews, getPreviewRenderer);
-  const key = `${kind}:${color}:${stage}`;
+  const key = `${kind}:${color}:${stage}:${Boolean(owned)}`;
   const [image, setImage] = useState<{ key: string; src: string }>();
   const [failure, setFailure] = useState("");
   useEffect(() => {
     if (!renderer) return;
     let active = true;
-    void previewImage({ kind, color, stage }, renderer).then(
+    void previewImage({ kind, color, stage, owned }, renderer).then(
       (src) => {
         if (active) {
           setImage({ key, src });
@@ -28,7 +28,7 @@ export function BuildingPreview({ kind, color, stage }: ArtVariant) {
     return () => {
       active = false;
     };
-  }, [renderer, key, kind, color, stage]);
+  }, [renderer, key, kind, color, stage, owned]);
   return image?.key === key ? (
     <img
       className="building-thumbnail"

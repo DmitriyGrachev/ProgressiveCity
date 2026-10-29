@@ -7,6 +7,8 @@ import { service } from "../storage/service";
 import { BackupUsage } from "./BackupUsage";
 import type { ValidatedArchive } from "../storage/backup";
 import { loadBackup } from "../app/load-backup";
+import { BackupStatus } from "./BackupStatus";
+import { LibraryMaintenance } from "./LibraryMaintenance";
 export function Settings({ data }: { data: CityData }) {
   const city = data.city!;
   const [name, setName] = useState(city.name);
@@ -126,6 +128,7 @@ export function Settings({ data }: { data: CityData }) {
       <hr />
       <h3>Резервная копия</h3>
       <BackupUsage />
+      <BackupStatus />
       <p>
         Город хранится в этом браузере. Регулярно экспортируйте архив: очистка
         данных браузера удаляет локальную базу.
@@ -170,9 +173,11 @@ export function Settings({ data }: { data: CityData }) {
         </label>
       </div>
       <p className="hint">
-        Архив до 64 MiB; распакованные данные до 128 MiB. Изображения включены.
-        Данные не зашифрованы и не отправляются в облако.
+        Новая копия v3 — до 256 MiB, распакованные данные до 512 MiB. Старые
+        v1/v2 — до 64/128 MiB. Изображения включены. Данные не зашифрованы и не
+        отправляются в облако.
       </p>
+      <LibraryMaintenance epoch={data.storageEpoch} />
       <button
         onClick={() =>
           void act(async () => {

@@ -116,6 +116,7 @@ it.each([-1, 0, 1])(
     await db.attachments.add(fixture.attachments[0]);
     const before = await db.read();
     if (offset > 0) {
+      await expect(inspectArchive(fixture.zip)).rejects.toThrow(/64 MiB/);
       await expect(
         inspectArchive(v1).then((data) => replaceCity(db, data)),
       ).rejects.toThrow(/64 MiB/);
@@ -123,14 +124,18 @@ it.each([-1, 0, 1])(
         replaceCity(db, {
           data: fixture.migrated,
           attachments: fixture.attachments,
+          version: 2,
         }),
       ).rejects.toThrow(/64 MiB/);
       expect(await db.read()).toEqual(before);
       expect(await db.attachments.count()).toBe(1);
     } else {
+      expect((await inspectArchive(fixture.zip)).version).toBe(2);
       await replaceCity(db, await inspectArchive(v1));
       const exported = await exportCity(db);
-      expect(exported.size).toBe(limit + offset);
+      expect(exported.size).toBe(
+        limit + offset + 16 * (fixture.attachments.length + 2),
+      );
       const restored = database();
       await replaceCity(restored, await inspectArchive(exported));
       expect((await restored.read()).notes).toEqual((await db.read()).notes);
@@ -218,7 +223,9 @@ it.each([-1, 0, 1])(
       await db.open();
       expect((await db.read()).storageEpoch).toBe("original-zip-epoch");
       const exported = await exportCity(db);
-      expect(exported.size).toBe(limit + offset);
+      expect(exported.size).toBe(
+        limit + offset + 16 * (fixture.attachments.length + 2),
+      );
       expect((await inspectArchive(exported)).data.notes).toHaveLength(200);
     }
   },

@@ -1577,6 +1577,32 @@ small {
   overflow: hidden;
   text-overflow: ellipsis;
 }
+.durable-recovery {
+  position: fixed;
+  left: 78px;
+  bottom: 16px;
+  z-index: 75;
+  width: min(430px, calc(100vw - 95px));
+  max-height: 55vh;
+  overflow: auto;
+  padding: 12px;
+  border: 2px solid #a65d32;
+  border-radius: 10px;
+  background: #fff7e5;
+  box-shadow: 0 8px 25px #0002;
+  overflow-wrap: anywhere;
+}
+.durable-recovery article {
+  border-top: 1px solid var(--line);
+  padding: 10px 0;
+}
+.durable-recovery textarea {
+  width: 100%;
+}
+.durable-recovery button {
+  max-width: 100%;
+  overflow-wrap: anywhere;
+}
 .daily-quick-actions small {
   color: var(--muted);
 }

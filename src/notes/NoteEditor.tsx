@@ -16,20 +16,46 @@ import {
 } from "../app/ui";
 import { SaveSession, type SaveStatus } from "./save-session";
 import { AttachmentNode, AttachmentCache } from "./AttachmentNode";
-import { retainDraft, type LocalDraft } from "./recovery";
+import { exportRecoveredNote, retainDraft, type LocalDraft } from "./recovery";
+import { downloadFile } from "../app/download";
 import { setWorkView } from "../app/research";
 import { MaterialExport } from "../features/MaterialExport";
+import { RecoveryWriter, type ProtectionStatus } from "./durable";
+import { holdAttachmentLock } from "../storage/recovery-journal";
 
 export function NoteEditor({ note, epoch }: { note: Note; epoch: string }) {
   const [status, setStatus] = useState<SaveStatus>("Сохранено");
+  const [protection, setProtection] = useState<ProtectionStatus>(
+    "Нет незавершённого ввода",
+  );
+  const [writer] = useState(() => new RecoveryWriter(epoch));
   const [session] = useState(
-    () => new SaveSession(note, (n) => service.saveNote(n, epoch), setStatus),
+    () =>
+      new SaveSession(
+        note,
+        (n) => service.saveNote(n, epoch),
+        setStatus,
+        (draft, dirty) => {
+          writer.update(
+            dirty || pendingUpload.current || failedUpload.current
+              ? {
+                  kind: "note",
+                  label: draft.title,
+                  note: draft,
+                  pendingAttachmentIds: [...pendingImages.current],
+                }
+              : null,
+            [...local.attachments.values()],
+          );
+        },
+      ),
   );
   const [title, setTitle] = useState(note.title);
   const [tags, setTags] = useState(note.tags.join(", "));
   const [link, setLink] = useState("");
   const [uploading, setUploading] = useState(false);
   const pendingUpload = useRef<Promise<void> | null>(null);
+  const pendingImages = useRef(new Set<string>());
   const failedUpload = useRef<{ file: File; inserted: boolean } | null>(null);
   const [uploadFailed, setUploadFailed] = useState(false);
   const pendingCopy = useRef<Promise<void> | null>(null);
@@ -39,7 +65,7 @@ export function NoteEditor({ note, epoch }: { note: Note; epoch: string }) {
   const [initialEpoch] = useState(epoch);
   const invalidated = epoch !== initialEpoch;
   const [local] = useState<LocalDraft>(() => ({
-    id: crypto.randomUUID(),
+    id: writer.id,
     session,
     attachments: new Map(),
     wait: async () => {
@@ -47,6 +73,7 @@ export function NoteEditor({ note, epoch }: { note: Note; epoch: string }) {
       await pendingUpload.current;
       await pendingCopy.current?.catch(() => {});
     },
+    forget: () => writer.discard(),
   }));
   const readonly = useUI((s) => Boolean(s.snapshotId || s.comparison));
   const transitioning = useUI((s) => s.transitioning);
@@ -70,11 +97,15 @@ export function NoteEditor({ note, epoch }: { note: Note; epoch: string }) {
       session.update({ doc: editor.getJSON(), text: editor.getText() }),
   });
   useEffect(() => {
+    writer.connect(setProtection);
+    return () => writer.detach();
+  }, [writer]);
+  useEffect(() => {
     let mounted = true;
-    ready.current = db.transaction(
-      "r",
-      [db.metadata, db.attachments],
-      async () => {
+    const lock = holdAttachmentLock(db.name);
+    ready.current = lock.ready.then(() => {
+      if (!mounted) return;
+      return db.transaction("r", [db.metadata, db.attachments], async () => {
         if ((await db.metadata.get("epoch"))?.value !== initialEpoch)
           throw new Error(
             "Город изменился при открытии материала. Откройте заметку снова.",
@@ -92,8 +123,8 @@ export function NoteEditor({ note, epoch }: { note: Note; epoch: string }) {
             );
           local.attachments.set(a.id, a);
         }
-      },
-    );
+      });
+    });
     void ready.current
       .then(() => {
         if (mounted) setCacheReady(true);
@@ -101,6 +132,7 @@ export function NoteEditor({ note, epoch }: { note: Note; epoch: string }) {
       .catch(reportError);
     return () => {
       mounted = false;
+      lock.release();
     };
   }, [initialEpoch, local, session]);
   useEffect(() => {
@@ -159,10 +191,21 @@ export function NoteEditor({ note, epoch }: { note: Note; epoch: string }) {
     setUploading(true);
     try {
       if (!inserted) {
-        const a = await service.attachImage(file, initialEpoch, (a) =>
-          local.attachments.set(a.id, a),
-        );
-        editor
+        const a = await service.attachImage(file, initialEpoch, async (a) => {
+          local.attachments.set(a.id, a);
+          pendingImages.current.add(a.id);
+          writer.update(
+            {
+              kind: "note",
+              label: session.draft.title,
+              note: session.draft,
+              pendingAttachmentIds: [...pendingImages.current],
+            },
+            [...local.attachments.values()],
+          );
+          await writer.flush();
+        });
+        const insertedImage = editor
           .chain()
           .focus()
           .insertContent([
@@ -174,6 +217,11 @@ export function NoteEditor({ note, epoch }: { note: Note; epoch: string }) {
           ])
           .focus("end")
           .run();
+        if (!insertedImage)
+          throw new Error(
+            "Изображение не вставлено. Оригинал остаётся в страховочной копии.",
+          );
+        pendingImages.current.clear();
         inserted = true;
       }
       await session.flush();
@@ -192,8 +240,20 @@ export function NoteEditor({ note, epoch }: { note: Note; epoch: string }) {
   }
   function startUpload(file?: File, inserted = false) {
     if (!file || pendingUpload.current) return;
+    writer.begin();
     pendingUpload.current = upload(file, inserted).finally(() => {
       pendingUpload.current = null;
+      writer.update(
+        session.dirty || failedUpload.current
+          ? {
+              kind: "note",
+              label: session.draft.title,
+              note: session.draft,
+              pendingAttachmentIds: [...pendingImages.current],
+            }
+          : null,
+        [...local.attachments.values()],
+      );
     });
   }
   async function saveCopy() {
@@ -366,8 +426,19 @@ export function NoteEditor({ note, epoch }: { note: Note; epoch: string }) {
                   <button
                     disabled={uploading}
                     onClick={() => {
+                      pendingImages.current.clear();
                       failedUpload.current = null;
                       setUploadFailed(false);
+                      writer.update(
+                        session.dirty
+                          ? {
+                              kind: "note",
+                              label: session.draft.title,
+                              note: session.draft,
+                            }
+                          : null,
+                        [...local.attachments.values()],
+                      );
                     }}
                   >
                     Отменить повтор загрузки
@@ -436,11 +507,37 @@ export function NoteEditor({ note, epoch }: { note: Note; epoch: string }) {
           </>
         )}
       </fieldset>
+      <p
+        className={protection.startsWith("Страховка не") ? "notice" : "hint"}
+        data-testid="recovery-protection"
+        role="status"
+      >
+        {uploading && protection === "Черновик защищён на устройстве"
+          ? "Текст защищён; дождитесь завершения загрузки изображения."
+          : protection}
+      </p>
+      {(status.startsWith("Ошибка") ||
+        protection.startsWith("Страховка не")) && (
+        <button
+          onClick={() =>
+            void act(async () => {
+              downloadFile(
+                await exportRecoveredNote(session.draft, [
+                  ...local.attachments.values(),
+                ]),
+                "progress-city-unsaved-note.zip",
+              );
+            })
+          }
+        >
+          Выгрузить текущий ввод
+        </button>
+      )}
       <p className="hint">
         Автосохранение. Изображения PNG/JPEG/WebP до 5 MiB. Код хранится как
-        текст. Общий резервный архив ограничен 64 MiB, данные — 32 MiB UTF-8.
-        Проверяйте объём в настройках до заполнения; неиспользуемые изображения
-        тоже занимают место.
+        текст. Общий резервный архив v3 ограничен 256 MiB, данные — 32 MiB
+        UTF-8. Проверяйте объём в настройках до заполнения; неиспользуемые
+        изображения тоже занимают место.
       </p>
     </section>
   );

@@ -7,6 +7,7 @@ export async function openHabitDay(
   trackId: string,
   date: string,
   epoch: string,
+  sourceId?: string,
 ) {
   await transition(async () => {
     const request = await db.transaction(
@@ -33,12 +34,17 @@ export async function openHabitDay(
           trackId,
           date,
         );
+        if (
+          sourceId &&
+          (await db.activities.get(sourceId))?.trackId !== trackId
+        )
+          throw new Error("Основание привычки не найдено.");
         return {
           requestId: id(),
           trackId,
           date,
           epoch,
-          activityId: day.activity?.id,
+          activityId: sourceId ?? day.activity?.id,
         };
       },
     );

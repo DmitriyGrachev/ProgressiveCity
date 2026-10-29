@@ -22,6 +22,7 @@ import { usePendingForm } from "../app/pending-forms";
 import { DevelopmentChoice } from "./Research";
 import { NextQuestionForm } from "./NextQuestionForm";
 import { HabitReceipt } from "./HabitReceipt";
+import { activityDraftState } from "../domain/draft-forms";
 export function ActivityForm({
   data,
   track,
@@ -66,7 +67,7 @@ export function ActivityForm({
   const [noteIds, setNoteIds] = useState(
     activity?.noteIds ?? (initialNote ? [initialNote.id] : []),
   );
-  const savedId = useRef(activity?.id);
+  const savedId = useRef(activity?.id ?? id());
   const [confirmed, setConfirmed] = useState(activity?.confirmed ?? false);
   const [justConfirmed, setJustConfirmed] = useState(false);
   const [saved, setSaved] = useState(Boolean(activity));
@@ -78,7 +79,9 @@ export function ActivityForm({
   const [initialEpoch] = useState(
     initialRequest?.epoch ?? dayRequest?.epoch ?? data.storageEpoch,
   );
-  const [formTimezone] = useState(activity?.timezone ?? data.city!.timezone);
+  const [formTimezone, setFormTimezone] = useState(
+    activity?.timezone ?? data.city!.timezone,
+  );
   const [today, setToday] = useState(() => localDate(data.city!.timezone));
   useEffect(() => {
     const refresh = () => setToday(localDate(data.city!.timezone));
@@ -104,11 +107,42 @@ export function ActivityForm({
   };
   const [baseline, setBaseline] = useState(fields);
   const expected = useRef(activity);
-  const clean = usePendingForm({
+  const { clean, protection } = usePendingForm({
     label: habit ? `Запись дня «${track.name}»` : "Результат исследования",
     epoch: initialEpoch,
     dirty: JSON.stringify(fields) !== JSON.stringify(baseline),
     text: `${title}\n${date}\n${result}\nТип: ${kind}\nМинуты: ${duration}\nЗначение: ${value}\nЦель выполнена: ${achieved}\nМатериалы: ${noteIds.join(", ")}`,
+    recovery: {
+      context: `activity:${track.id}:${object?.id ?? "habit"}`,
+      state: {
+        target: {
+          kind: "activity",
+          trackId: track.id,
+          objectId: object?.id,
+          activityId: savedId.current,
+          date,
+        },
+        fields,
+        baseline,
+        expected: expected.current,
+        timezone: formTimezone,
+      },
+      restore: (state) => {
+        const restored = activityDraftState.parse(state);
+        setTitle(restored.fields.title);
+        setResult(restored.fields.result);
+        setKind(restored.fields.kind);
+        setDate(restored.fields.date);
+        setDuration(restored.fields.duration);
+        setValue(restored.fields.value);
+        setAchieved(restored.fields.achieved);
+        setNoteIds(restored.fields.noteIds);
+        savedId.current = restored.target.activityId ?? id();
+        expected.current = restored.expected;
+        setBaseline(restored.baseline);
+        setFormTimezone(restored.timezone);
+      },
+    },
     save: () => save(false),
     discard: () => {
       setTitle(baseline.title);
@@ -142,10 +176,10 @@ export function ActivityForm({
           achieved: habit ? achieved : true,
           duration: duration === "" ? undefined : Number(duration),
           value: value === "" ? undefined : Number(value),
-          ...(habit && !savedId.current ? { timezone: formTimezone } : {}),
+          ...(habit && !expected.current ? { timezone: formTimezone } : {}),
         },
         initialEpoch,
-        expected.current,
+        expected.current ?? null,
       );
       savedId.current = a.id;
       expected.current = a;
@@ -183,6 +217,9 @@ export function ActivityForm({
   }
   return (
     <section>
+      <p className="hint" data-testid="form-protection" role="status">
+        {protection}
+      </p>
       {invalidated && (
         <p role="alert">
           Город восстановлен в другой вкладке. Скопируйте свой вывод перед

@@ -8,6 +8,7 @@ import {
   replaceCity,
 } from "../../src/storage/backup";
 import { addAttachment } from "../../src/storage/attachments";
+import { prepareArchive } from "../../src/storage/archive-format";
 import {
   validateDocument,
   validateRelations,
@@ -165,7 +166,7 @@ it("rejects disguised or oversized image uploads", async () => {
     ),
   ).rejects.toThrow();
 });
-it("refuses an archive above the combined image limit without modifying stored attachments", async () => {
+it("refuses legacy v2 admission above its combined image limit without modifying stored attachments", async () => {
   const bytes = new Uint8Array(5 * 1024 * 1024);
   bytes.set(png);
   await db.attachments.bulkAdd(
@@ -178,7 +179,24 @@ it("refuses an archive above the combined image limit without modifying stored a
     })),
   );
   const before = await db.read();
-  await expect(exportCity(db)).rejects.toThrow(/64 MiB/);
+  const { storageEpoch, ...content } = before;
+  void storageEpoch;
+  const attachments = await db.attachments.toArray();
+  expect(() =>
+    prepareArchive(
+      {
+        ...content,
+        attachments: attachments.map(({ id, name, mime, size }) => ({
+          id,
+          name,
+          mime,
+          size,
+        })),
+      },
+      attachments,
+      2,
+    ),
+  ).toThrow(/64 MiB/);
   expect(await db.read()).toEqual(before);
   expect(await db.attachments.count()).toBe(13);
   expect((await db.attachments.get("large-image-0"))!.blob.size).toBe(

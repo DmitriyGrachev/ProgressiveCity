@@ -166,7 +166,13 @@ test("result shortcut uses the saved note title while the live note list is dela
       configurable: true,
       value: async () => {
         const notes = await read();
-        await CityDB.waitFor(gate);
+        if (
+          CityDB.currentTransaction?.mode === "readonly" &&
+          CityDB.currentTransaction.storeNames.length === 2
+        ) {
+          Object.assign(window, { noteReadWaiting: true });
+          await CityDB.waitFor(gate);
+        }
         return notes;
       },
     });
@@ -178,6 +184,15 @@ test("result shortcut uses the saved note title while the live note list is dela
   await expect(page.getByLabel("Название результата")).toHaveValue(
     "Последнее название",
   );
+  await expect
+    .poll(() =>
+      page.evaluate(() =>
+        Boolean(
+          (window as unknown as { noteReadWaiting?: boolean }).noteReadWaiting,
+        ),
+      ),
+    )
+    .toBe(true);
   await page.evaluate(() =>
     (window as unknown as { releaseNoteRead: () => void }).releaseNoteRead(),
   );

@@ -18,8 +18,9 @@ export default defineConfig({
     "daily-release.spec.ts",
     "stabilization.spec.ts",
     "city-first.spec.ts",
+    "long-term.spec.ts",
   ],
-  grep: /city first:|city, material|old city grows|preserves an oversized|rejects a legacy archive|convenient planning|roads reject|note undo|compare city on one canvas|equal saved states|current comparison only|comparison cancels|comparison focus|visual constructor|readable city:|continue research:|daily forms:|materials export|quick backup|optional editor|optional materials|daily release:|stabilization:/,
+  grep: /long term:|city first:|city, material|old city grows|preserves an oversized|rejects a legacy archive|convenient planning|roads reject|note undo|compare city on one canvas|equal saved states|current comparison only|comparison cancels|comparison focus|visual constructor|readable city:|continue research:|daily forms:|materials export|quick backup|optional editor|optional materials|daily release:|stabilization:/,
   use: { ...base.use, baseURL: "http://127.0.0.1:4174" },
   webServer: {
     command:

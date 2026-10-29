@@ -5,6 +5,12 @@ export const EXPANDED_LIMIT = 128 * 1024 * 1024;
 export const DATA_LIMIT = 32 * 1024 * 1024;
 export const MANIFEST_LIMIT = 1024 * 1024;
 export const IMAGE_LIMIT = 5 * 1024 * 1024;
+export type ArchiveVersion = 1 | 2 | 3;
+export function archiveLimits(version: ArchiveVersion) {
+  return version === 3
+    ? { zip: 256 * 1024 * 1024, expanded: 512 * 1024 * 1024 }
+    : { zip: ARCHIVE_LIMIT, expanded: EXPANDED_LIMIT };
+}
 
 export class ArchiveLimitError extends Error {
   constructor(readonly reason: string) {

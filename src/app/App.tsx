@@ -177,6 +177,7 @@ export function App() {
       state.set({
         trackId: null,
         objectId: null,
+        additionId: null,
         noteId: null,
         buildingId: null,
         resultRequest: null,
@@ -325,8 +326,9 @@ export function App() {
                         resultRequest: null,
                         noteId: null,
                         buildingId:
-                          data.buildings.find((b) => b.trackId === t.id)?.id ??
-                          null,
+                          data.buildings.find(
+                            (b) => b.trackId === t.id && !b.habitAdditionId,
+                          )?.id ?? null,
                       })
                     }
                   >

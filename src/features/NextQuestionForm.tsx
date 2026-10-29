@@ -3,6 +3,7 @@ import type { LearningObject } from "../domain/model";
 import { service } from "../storage/service";
 import { usePendingForm } from "../app/pending-forms";
 import { act, useUI } from "../app/ui";
+import { researchDraftState } from "../domain/draft-forms";
 
 export function NextQuestionForm({
   object,
@@ -19,11 +20,30 @@ export function NextQuestionForm({
   const [busy, setBusy] = useState(false);
   const working = useRef(false);
   const transitioning = useUI((s) => s.transitioning);
-  const clean = usePendingForm({
+  const { clean, protection } = usePendingForm({
     label: `Следующий вопрос «${base.object.name}»`,
     epoch: base.epoch,
     dirty: question !== base.object.nextQuestion,
     text: question,
+    recovery: {
+      context: `research:${object.id}`,
+      state: {
+        target: {
+          kind: "research",
+          trackId: object.trackId,
+          objectId: object.id,
+        },
+        fields: { name: base.object.name, question },
+        base: base.object,
+      },
+      restore: (state) => {
+        const restored = researchDraftState.parse(state);
+        setSaved(false);
+        setSkipped(false);
+        setQuestion(restored.fields.question);
+        setBase({ object: restored.base, epoch: base.epoch });
+      },
+    },
     save,
     discard: () => {
       setQuestion(base.object.nextQuestion);
@@ -70,6 +90,9 @@ export function NextQuestionForm({
   return (
     <section className="next-question" aria-label="Следующий шаг">
       <h3>Что проверить дальше?</h3>
+      <p className="hint" data-testid="form-protection" role="status">
+        {protection}
+      </p>
       <p className="hint">
         Вопрос необязателен. Результат уже подтверждён; сохранение вопроса не
         начисляет очки.

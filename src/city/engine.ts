@@ -106,7 +106,7 @@ export class CityEngine {
     }
     this.initialized = true;
     this.unregisterPreviews = registerPreviewRenderer(
-      async ({ kind, color, stage }) => {
+      async ({ kind, color, stage, owned }) => {
         const progress = ["workshop", "library", "pavilion"].includes(kind);
         const size = progress || ["park", "plaza"].includes(kind) ? 2 : 1;
         const art = buildingArt(
@@ -120,6 +120,7 @@ export class CityEngine {
             kind,
             color,
             ...(progress ? { trackId: "preview" } : {}),
+            ...(owned ? { habitAdditionId: "preview-owned" } : {}),
           },
           stage,
           false,
@@ -286,10 +287,13 @@ export class CityEngine {
     )) {
       const stage =
         input.snapshot?.buildings.find((s) => s.id === b.id)?.stage ??
-        (b.learningObjectId
-          ? input.data.learningObjects.find((o) => o.id === b.learningObjectId)
-              ?.stage
-          : input.data.tracks.find((t) => t.id === b.trackId)?.stage) ??
+        (b.habitAdditionId
+          ? 1
+          : b.learningObjectId
+            ? input.data.learningObjects.find(
+                (o) => o.id === b.learningObjectId,
+              )?.stage
+            : input.data.tracks.find((t) => t.id === b.trackId)?.stage) ??
         1;
       const art = buildingArt(b, stage, input.selected === b.id);
       this.objects.addChild(art.container);
@@ -350,6 +354,7 @@ export class CityEngine {
       const upgraded = input.data.buildings.find((b) => {
         if (
           !b.trackId ||
+          b.habitAdditionId ||
           !old.data.buildings.some(
             (p) =>
               p.id === b.id &&
@@ -729,12 +734,15 @@ export class CityEngine {
     const p = gridToIso(x, y);
     const s = b.w * 32;
     const stage =
-      (b.learningObjectId
-        ? this.input!.data.learningObjects.find(
-            (o) => o.id === b.learningObjectId,
-          )?.stage
-        : this.input!.data.tracks.find((t) => t.id === b.trackId)?.stage) ?? 1;
-    const key = `${b.kind}:${b.color}:${b.w}:${b.h}:${Boolean(b.trackId)}:${stage}`;
+      (b.habitAdditionId
+        ? 1
+        : b.learningObjectId
+          ? this.input!.data.learningObjects.find(
+              (o) => o.id === b.learningObjectId,
+            )?.stage
+          : this.input!.data.tracks.find((t) => t.id === b.trackId)?.stage) ??
+      1;
+    const key = `${b.kind}:${b.color}:${b.w}:${b.h}:${Boolean(b.trackId)}:${stage}:${Boolean(b.habitAdditionId)}`;
     if (this.ghostKey !== key || !this.ghostArt) {
       this.clearGhost();
       this.ghostArt = buildingArt({ ...b, x: 0, y: 0 }, stage, false).container;

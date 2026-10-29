@@ -1,3 +1,12 @@
+# Долгое использование — проверено, 29.10.2026
+
+L0–L5 выполнены по [LONG_TERM_PLAN](LONG_TERM_PLAN.md), L6: README/архитектура/матрица/6syntheticPNG готовы, Git-передача после проверенного diff. **lint/typecheck/build PASS;145 unit/104 e2e/64 preview/6 Windows launcher PASS;3 Edge/NVIDIA dist PASS**; source fingerprint неизменён, личный5173/prepared.json сохранены. Отчёт: [LONG_TERM_REVIEW](LONG_TERM_REVIEW.md).
+
+Следующее полное A–D поручение и подтверждённые решения: [PRODUCT_IMPLEMENTATION_PLAN](PRODUCT_IMPLEMENTATION_PLAN.md). Новая реализация ещё не начата; текущая завершённая итерация её не подменяет.
+
+
+---
+
 # «Город на первом плане» — выполнено, 29.10.2026
 
 План/границы до реализации: [CITY_FIRST_PLAN](CITY_FIRST_PLAN.md). База075f2dd, текущая папка/main, один исполнитель и read-only reviewers.

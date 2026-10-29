@@ -1,9 +1,20 @@
-import { strFromU8, Unzip, UnzipInflate, zipSync } from "fflate";
+import {
+  strFromU8,
+  Unzip,
+  UnzipInflate,
+  zipSync,
+  Zip,
+  ZipPassThrough,
+} from "fflate";
 import { z } from "zod";
 import Dexie from "dexie";
 import { CityDB } from "./db";
 import { validateImage } from "./attachments";
 import { dataSchema, validateRelations, type ArchiveData } from "./validation";
+import {
+  dataSchema as v2Schema,
+  validateRelations as validateV2Relations,
+} from "./validation-v2";
 import {
   dataSchema as legacySchema,
   validateRelations as validateLegacyRelations,
@@ -12,14 +23,20 @@ import {
 import { migrateV1 } from "./migrate";
 import type { Attachment } from "../domain/model";
 
-import { ARCHIVE_LIMIT, EXPANDED_LIMIT, archiveFileLimit } from "./limits";
+import {
+  ARCHIVE_LIMIT,
+  EXPANDED_LIMIT,
+  archiveFileLimit,
+  archiveLimits,
+  type ArchiveVersion,
+} from "./limits";
 import { encodeManifest, prepareArchive } from "./archive-format";
 import { readZipDirectory, verifyZipEntry } from "./zip-container";
 export { ARCHIVE_LIMIT, EXPANDED_LIMIT } from "./limits";
 const manifestSchema = z
   .object({
     format: z.literal("progress-city"),
-    version: z.union([z.literal(1), z.literal(2)]),
+    version: z.union([z.literal(1), z.literal(2), z.literal(3)]),
     exportedAt: z.string().datetime(),
     files: z
       .array(
@@ -45,7 +62,7 @@ async function hash(bytes: Uint8Array) {
 export async function exportCity(db: CityDB): Promise<Blob> {
   const { data, attachments } = await db.transaction(
     "r",
-    db.tables,
+    db.cityTables,
     async () => ({
       data: await db.read(),
       attachments: await db.attachments.toArray(),
@@ -65,7 +82,7 @@ export async function exportCity(db: CityDB): Promise<Blob> {
   };
   const parsed = dataSchema.parse(payload);
   validateRelations(parsed);
-  return createArchive(parsed, attachments, 2);
+  return createArchive(parsed, attachments, 3);
 }
 
 /** Read the preserved v1 without registering or running an upgrade. */
@@ -123,13 +140,15 @@ export async function exportLegacyCity(name: string): Promise<Blob> {
 async function createArchive(
   data: ArchiveData | LegacyArchiveData,
   attachments: Attachment[],
-  version: 1 | 2,
+  version: ArchiveVersion,
 ): Promise<Blob> {
   const { dataBytes, exportedAt, zipSize } = prepareArchive(
     data,
     attachments,
     version,
   );
+  if (version === 3)
+    return streamArchive(dataBytes, attachments, exportedAt, zipSize);
   const files: Record<string, Uint8Array> = {
     "data.json": dataBytes,
   };
@@ -158,8 +177,76 @@ async function createArchive(
     );
   return new Blob([zip], { type: "application/zip" });
 }
-function unpack(bytes: Uint8Array) {
+async function streamArchive(
+  data: Uint8Array,
+  attachments: Attachment[],
+  exportedAt: string,
+  expectedSize: number,
+) {
+  const parts: Blob[] = [];
+  let size = 0,
+    ended = false;
+  const zip = new Zip((error, chunk, final) => {
+    if (error) throw error;
+    size += chunk.length;
+    if (size > archiveLimits(3).zip)
+      throw new Error("Архив превышает 256 MiB.");
+    parts.push(new Blob([new Uint8Array(chunk)]));
+    ended = final;
+  });
+  const files: { path: string; size: number; sha256: string }[] = [];
+  const append = async (path: string, bytes: Uint8Array) => {
+    const entry = new ZipPassThrough(path);
+    zip.add(entry);
+    if (!bytes.length) entry.push(bytes, true);
+    for (let offset = 0; offset < bytes.length; offset += 512 * 1024) {
+      entry.push(
+        bytes.subarray(offset, offset + 512 * 1024),
+        offset + 512 * 1024 >= bytes.length,
+      );
+      await new Promise<void>((resolve) => setTimeout(resolve, 0));
+    }
+  };
+  try {
+    files.push({
+      path: "data.json",
+      size: data.length,
+      sha256: await hash(data),
+    });
+    await append("data.json", data);
+    for (const attachment of attachments) {
+      await validateImage(attachment.blob, attachment.mime);
+      const bytes = new Uint8Array(await attachment.blob.arrayBuffer());
+      const path = `attachments/${attachment.id}`;
+      files.push({ path, size: bytes.length, sha256: await hash(bytes) });
+      await append(path, bytes);
+    }
+    await append("manifest.json", encodeManifest(files, 3, exportedAt));
+    zip.end();
+    if (!ended || size !== expectedSize)
+      throw new Error(
+        "Размер ZIP не совпал с проверенным форматом. Экспорт отменён без изменения данных.",
+      );
+    return new Blob(parts, { type: "application/zip" });
+  } catch (error) {
+    zip.terminate();
+    throw error;
+  }
+}
+async function unpack(
+  bytes: Uint8Array,
+  version: ArchiveVersion,
+  manifestOnly = false,
+) {
   const directory = readZipDirectory(bytes);
+  const limits = archiveLimits(version);
+  let declared = 0;
+  for (const [name, entry] of directory) {
+    if (entry.size > archiveFileLimit(name))
+      throw new Error("Превышен лимит распаковки: размер файла.");
+    declared += entry.size;
+  }
+  if (declared > limits.expanded) throw new Error("Превышен лимит распаковки.");
   const files: Record<string, Uint8Array> = Object.create(null) as Record<
     string,
     Uint8Array
@@ -179,10 +266,11 @@ function unpack(bytes: Uint8Array) {
       throw new Error("Недопустимый путь, дубликат или число файлов в архиве.");
     paths.add(file.name);
     if (
-      (file.originalSize ?? 0) > EXPANDED_LIMIT ||
-      (file.size ?? 0) > ARCHIVE_LIMIT
+      (file.originalSize ?? 0) > limits.expanded ||
+      (file.size ?? 0) > limits.zip
     )
       throw new Error("Превышен размер файла.");
+    if (manifestOnly && file.name !== "manifest.json") return;
     const chunks: Uint8Array[] = [];
     let size = 0;
     file.ondata = (error, chunk, final) => {
@@ -190,7 +278,7 @@ function unpack(bytes: Uint8Array) {
       size += chunk.length;
       total += chunk.length;
       const limit = archiveFileLimit(file.name);
-      if (size > limit || total > EXPANDED_LIMIT) {
+      if (size > limit || total > limits.expanded) {
         file.terminate();
         throw new Error("Превышен лимит распаковки.");
       }
@@ -210,13 +298,15 @@ function unpack(bytes: Uint8Array) {
     file.start();
   });
   unzip.register(UnzipInflate);
-  for (let i = 0; i < bytes.length; i += 1024)
+  for (let i = 0; i < bytes.length; i += 1024) {
     unzip.push(bytes.subarray(i, i + 1024), i + 1024 >= bytes.length);
+    if (i && i % (256 * 1024) === 0)
+      await new Promise<void>((resolve) => setTimeout(resolve, 0));
+  }
   if (
-    completed !== count ||
-    completed !== directory.size ||
+    (!manifestOnly && (completed !== count || completed !== directory.size)) ||
     !files["manifest.json"] ||
-    !files["data.json"]
+    (!manifestOnly && !files["data.json"])
   )
     throw new Error("Архив неполный.");
   return files;
@@ -224,15 +314,23 @@ function unpack(bytes: Uint8Array) {
 export interface ValidatedArchive {
   data: ArchiveData;
   attachments: Attachment[];
+  version?: ArchiveVersion;
+  exportedAt?: string;
 }
 export async function inspectArchive(blob: Blob): Promise<ValidatedArchive> {
-  if (blob.size > ARCHIVE_LIMIT || blob.size < 22)
-    throw new Error("Некорректный архив или размер больше 64 MiB.");
+  if (blob.size > archiveLimits(3).zip || blob.size < 22)
+    throw new Error("Некорректный архив или размер больше 256 MiB.");
   try {
-    const files = unpack(new Uint8Array(await blob.arrayBuffer()));
+    const bytes = new Uint8Array(await blob.arrayBuffer());
+    const first = await unpack(bytes, 3, true);
     const manifest = manifestSchema.parse(
-      JSON.parse(strFromU8(files["manifest.json"])),
+      JSON.parse(strFromU8(first["manifest.json"])),
     );
+    if (blob.size > archiveLimits(manifest.version).zip)
+      throw new Error(
+        `Архив версии ${manifest.version} превышает ${archiveLimits(manifest.version).zip / 1024 / 1024} MiB.`,
+      );
+    const files = await unpack(bytes, manifest.version);
     if (
       manifest.files.length + 1 !== Object.keys(files).length ||
       new Set(manifest.files.map((f) => f.path)).size !== manifest.files.length
@@ -251,6 +349,11 @@ export async function inspectArchive(blob: Blob): Promise<ValidatedArchive> {
       validateLegacyRelations(legacy);
       raw = migrateV1(legacy);
     }
+    if (manifest.version < 3) {
+      const legacy = v2Schema.parse(raw);
+      validateV2Relations(legacy);
+      raw = legacy;
+    }
     const data = dataSchema.parse(raw);
     validateRelations(data);
     if (data.attachments.length + 2 !== Object.keys(files).length)
@@ -264,8 +367,13 @@ export async function inspectArchive(blob: Blob): Promise<ValidatedArchive> {
       await validateImage(blob, a.mime);
       attachments.push({ ...a, blob });
     }
-    prepareArchive(data, attachments, 2);
-    return { data, attachments };
+    prepareArchive(data, attachments, manifest.version < 3 ? 2 : 3);
+    return {
+      data,
+      attachments,
+      version: manifest.version,
+      exportedAt: manifest.exportedAt,
+    };
   } catch (error) {
     throw new Error(
       `Импорт отклонён. Текущий город сохранён. ${error instanceof z.ZodError ? "Неверный формат или версия данных." : error instanceof Error ? error.message : "Повреждённый архив."}`,
@@ -277,11 +385,11 @@ export async function replaceCity(db: CityDB, archive: ValidatedArchive) {
   // Revalidate immediately before entering the atomic replacement transaction.
   const data = dataSchema.parse(archive.data);
   validateRelations(data);
-  prepareArchive(data, archive.attachments, 2);
+  prepareArchive(data, archive.attachments, (archive.version ?? 3) < 3 ? 2 : 3);
   if (archive.attachments.length !== data.attachments.length)
     throw new Error("Неполные вложения.");
-  await db.transaction("rw", db.tables, async () => {
-    for (const table of db.tables) await table.clear();
+  await db.transaction("rw", db.cityTables, async () => {
+    for (const table of db.cityTables) await table.clear();
     await db.metadata.add({ id: "epoch", value: crypto.randomUUID() });
     await db.cities.add(data.city);
     await db.tracks.bulkAdd(data.tracks);

@@ -97,7 +97,14 @@ export function buildingArt(b: Building, stage: number, selected: boolean) {
   container.addChild(g);
   const center = gridToIso(b.x, b.y);
   container.position.set(center.x, center.y);
-  const progress = Boolean(b.trackId);
+  const progress =
+    Boolean(b.trackId) && ["workshop", "library", "pavilion"].includes(b.kind);
+  const ownershipMark = () => {
+    if (!b.habitAdditionId) return;
+    g.moveTo(-45, 34).lineTo(-45, 9).stroke({ color: "#efe0b9", width: 3 });
+    polygon(g, [-45, 9, -29, 13, -45, 20], b.color);
+    g.circle(-40, 13, 2).fill("#fff4ce");
+  };
   const size = b.w * 32;
   polygon(
     g,
@@ -133,6 +140,7 @@ export function buildingArt(b: Building, stage: number, selected: boolean) {
       g.ellipse(0, 6, 11, 5).fill("#e9e2cc");
       g.ellipse(0, 4, 8, 3).fill("#a2d0d1");
     }
+    ownershipMark();
     return { container, graphic: g };
   }
   // Local vector architecture: warm masonry, pitched roofs, glazing and planted forecourts.
@@ -277,5 +285,6 @@ export function buildingArt(b: Building, stage: number, selected: boolean) {
     }
   }
   tree(g, 42, 44, 0.45);
+  ownershipMark();
   return { container, graphic: g };
 }

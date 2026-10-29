@@ -42,11 +42,13 @@ export const changeLabels: Record<ChangeFlag, string> = {
   appearance: "◐ Изменено оформление",
 };
 export function buildingKey(b: Building) {
-  return b.learningObjectId
-    ? `learning:${b.learningObjectId}`
-    : b.trackId
-      ? `track:${b.trackId}`
-      : `decor:${b.id}`;
+  return b.habitAdditionId
+    ? `addition:${b.habitAdditionId}`
+    : b.learningObjectId
+      ? `learning:${b.learningObjectId}`
+      : b.trackId
+        ? `track:${b.trackId}`
+        : `decor:${b.id}`;
 }
 function flags(
   a: District | VisualBuilding | undefined,
@@ -124,10 +126,11 @@ export function snapshotLayout(
     createdAt,
     buildings: data.buildings.map((b) => ({
       ...b,
-      stage:
-        (b.learningObjectId
-          ? objects.get(b.learningObjectId)
-          : tracks.get(b.trackId ?? "")) ?? 1,
+      stage: b.habitAdditionId
+        ? 1
+        : ((b.learningObjectId
+            ? objects.get(b.learningObjectId)
+            : tracks.get(b.trackId ?? "")) ?? 1),
     })),
     districts: data.districts.map((d) => ({ ...d })),
   };
@@ -143,9 +146,11 @@ export function relatedEvents(change: CityChange, session: ComparisonSession) {
       (e) =>
         e.createdAt >= times[0] &&
         e.createdAt <= times[1] &&
-        (b.learningObjectId
-          ? e.learningObjectId === b.learningObjectId
-          : e.trackId === b.trackId && !e.learningObjectId),
+        (b.habitAdditionId
+          ? e.id === b.habitAdditionId
+          : b.learningObjectId
+            ? e.learningObjectId === b.learningObjectId
+            : e.trackId === b.trackId && !e.learningObjectId),
     )
     .sort((a, b) => a.createdAt.localeCompare(b.createdAt));
 }

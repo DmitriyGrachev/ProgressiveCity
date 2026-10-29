@@ -21,12 +21,19 @@ export function BuildPanel({
 }) {
   const currentTrackId = useUI((s) => s.trackId);
   const currentObjectId = useUI((s) => s.objectId);
+  const currentAdditionId = useUI((s) => s.additionId);
+  const additionId = building?.habitAdditionId ?? currentAdditionId;
+  const purchase = data.events.find(
+    (e) => e.id === additionId && e.type === "habitAddition",
+  );
   const readonly = useUI((s) => Boolean(s.snapshotId || s.comparison));
   const placement = useUI((s) => s.placement);
   const transitioning = useUI((s) => s.transitioning);
-  const [kind, setKind] = useState<BuildingKind>(building?.kind ?? "workshop");
+  const [kind, setKind] = useState<BuildingKind>(
+    building?.kind ?? purchase?.additionKind ?? "workshop",
+  );
   const [trackId, setTrackId] = useState(
-    building?.trackId ?? currentTrackId ?? "",
+    building?.trackId ?? purchase?.trackId ?? currentTrackId ?? "",
   );
   const [name, setName] = useState(building?.name ?? "");
   const [objectId, setObjectId] = useState(
@@ -45,7 +52,8 @@ export function BuildPanel({
   const changed = Boolean(
     base.building && JSON.stringify(base.building) !== JSON.stringify(building),
   );
-  const progress = ["workshop", "library", "pavilion"].includes(kind);
+  const progress =
+    !additionId && ["workshop", "library", "pavilion"].includes(kind);
   const available = data.tracks.filter(
     (t) =>
       !t.archived &&
@@ -59,7 +67,8 @@ export function BuildPanel({
               ),
           )
         : !data.buildings.some(
-            (b) => b.trackId === t.id && b.id !== building?.id,
+            (b) =>
+              b.trackId === t.id && !b.habitAdditionId && b.id !== building?.id,
           )),
   );
   const objects = data.learningObjects.filter(
@@ -78,11 +87,12 @@ export function BuildPanel({
     : 1;
   const viewedStage = progress ? (previewStage ?? actualStage) : 1;
   const validColor = /^#[0-9a-f]{6}$/i.test(colorText.trim());
-  const kinds = (Object.keys(labels.buildings) as BuildingKind[]).filter(
-    (k) =>
-      !building ||
-      Boolean(building.trackId) ===
-        ["workshop", "library", "pavilion"].includes(k),
+  const kinds = (Object.keys(labels.buildings) as BuildingKind[]).filter((k) =>
+    additionId
+      ? k === purchase?.additionKind
+      : !building ||
+        Boolean(building.trackId) ===
+          ["workshop", "library", "pavilion"].includes(k),
   );
   function changeDraft() {
     setMessage("");
@@ -120,6 +130,13 @@ export function BuildPanel({
       throw new Error("Введите акцентный цвет в формате #RRGGBB.");
     if (progress && !trackId)
       throw new Error("Выберите направление для здания.");
+    if (
+      additionId &&
+      (!purchase ||
+        purchase.trackId !== trackId ||
+        purchase.additionKind !== kind)
+    )
+      throw new Error("Оплаченное дополнение недоступно. Выберите его заново.");
     const track = data.tracks.find((t) => t.id === trackId);
     if (progress && track && isLearning(track) && !selectedObject)
       throw new Error(
@@ -146,12 +163,13 @@ export function BuildPanel({
             ...(selectedObject ? { learningObjectId: selectedObject.id } : {}),
           }
         : {}),
+      ...(additionId ? { habitAdditionId: additionId, trackId } : {}),
     };
   };
   function reloadFields() {
     changeDraft();
     setBase({ building, epoch: data.storageEpoch });
-    setKind(building?.kind ?? "workshop");
+    setKind(building?.kind ?? purchase?.additionKind ?? "workshop");
     setName(building?.name ?? "");
     setTrackId(building?.trackId ?? currentTrackId ?? "");
     setObjectId(building?.learningObjectId ?? currentObjectId ?? "");
@@ -210,16 +228,26 @@ export function BuildPanel({
           color={color}
           stage={viewedStage}
           onChange={chooseKind}
+          owned={Boolean(additionId)}
         />
         <section
           className="building-preview"
           data-testid="building-preview"
           aria-label="Примерка выбранного варианта"
         >
-          <BuildingPreview kind={kind} color={color} stage={viewedStage} />
+          <BuildingPreview
+            kind={kind}
+            color={color}
+            stage={viewedStage}
+            owned={Boolean(additionId)}
+          />
           <b>
             {labels.buildings[kind]} ·{" "}
-            {progress ? `этап ${viewedStage}` : "декор"}
+            {progress
+              ? `этап ${viewedStage}`
+              : additionId
+                ? "оплаченное дополнение · флажок владения"
+                : "декор"}
           </b>
           {progress && (
             <>
@@ -260,18 +288,11 @@ export function BuildPanel({
             value={kind}
             onChange={(e) => chooseKind(e.target.value as BuildingKind)}
           >
-            {Object.entries(labels.buildings)
-              .filter(
-                ([k]) =>
-                  !building ||
-                  Boolean(building.trackId) ===
-                    ["workshop", "library", "pavilion"].includes(k),
-              )
-              .map(([value, label]) => (
-                <option key={value} value={value}>
-                  {label}
-                </option>
-              ))}
+            {kinds.map((value) => (
+              <option key={value} value={value}>
+                {labels.buildings[value]}
+              </option>
+            ))}
           </select>
         </label>
         {progress && (
@@ -394,7 +415,7 @@ export function BuildPanel({
             void act(async () => {
               useUI.getState().set({
                 placement: candidate(),
-                repeatPlacement: !building && !progress,
+                repeatPlacement: !building && !progress && !additionId,
                 placementEpoch: base.epoch,
                 placementExpected: base.building ?? null,
               });
@@ -406,7 +427,10 @@ export function BuildPanel({
         <p className="hint">
           Объект занимает{" "}
           {progress || ["park", "plaza"].includes(kind) ? "2 × 2" : "1 × 1"}{" "}
-          клетки. Дороги, парки, площади и деревья бесплатны.
+          клетки.{" "}
+          {additionId
+            ? "Это уже оплаченное дополнение. Повторное размещение бесплатно."
+            : "Дороги, парки, площади и деревья бесплатны."}
         </p>
         <details>
           <summary>Точное размещение по клеткам</summary>
@@ -492,6 +516,7 @@ export function BuildPanel({
             : "Нажмите на свободную клетку."}
           {!building &&
             !progress &&
+            !additionId &&
             " Можно размещать несколько раз. Escape завершает инструмент; правая кнопка мыши двигает карту."}
           <button onClick={() => useUI.getState().set({ placement: null })}>
             Отменить размещение

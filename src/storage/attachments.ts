@@ -2,6 +2,7 @@ import { id } from "../domain/model";
 import type { Attachment } from "../domain/model";
 import { CityDB } from "./db";
 import { IMAGE_LIMIT } from "./limits";
+import { assertCityCapacity } from "./capacity";
 export { IMAGE_LIMIT } from "./limits";
 export async function validateImage(blob: Blob, mime: string) {
   if (
@@ -30,7 +31,7 @@ export async function addAttachment(
   db: CityDB,
   file: File,
   expectedEpoch?: string,
-  retain?: (attachment: Attachment) => void,
+  retain?: (attachment: Attachment) => void | Promise<void>,
 ): Promise<Attachment> {
   await validateImage(file, file.type);
   const attachment = {
@@ -40,8 +41,8 @@ export async function addAttachment(
     size: file.size,
     blob: new Blob([await file.arrayBuffer()], { type: file.type }),
   };
-  retain?.(attachment);
-  await db.transaction("rw", [db.metadata, db.attachments], async () => {
+  await retain?.(attachment);
+  await db.transaction("rw", db.cityTables, async () => {
     if (
       expectedEpoch !== undefined &&
       (await db.metadata.get("epoch"))?.value !== expectedEpoch
@@ -50,6 +51,7 @@ export async function addAttachment(
         "Город заменён в другой вкладке. Изображение осталось в локальном черновике для выгрузки.",
       );
     await db.attachments.add(attachment);
+    await assertCityCapacity(db);
   });
   return attachment;
 }

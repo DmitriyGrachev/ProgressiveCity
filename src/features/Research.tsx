@@ -6,6 +6,7 @@ import { service } from "../storage/service";
 import { researchContext } from "../domain/continuation";
 import { usePendingForm } from "../app/pending-forms";
 import { MaterialExport } from "./MaterialExport";
+import { researchDraftState } from "../domain/draft-forms";
 
 export function ResearchPicker({
   data,
@@ -104,18 +105,39 @@ export function ResearchDetails({
   readonly: boolean;
 }) {
   const [name, setName] = useState(object.name);
+  const fields = useRef<HTMLDetailsElement>(null);
   const [question, setQuestion] = useState(object.nextQuestion);
   const [saved, setSaved] = useState(false);
   const [base, setBase] = useState({ object, epoch: data.storageEpoch });
   const [busy, setBusy] = useState(false);
   const transitioning = useUI((s) => s.transitioning);
-  const clean = usePendingForm({
+  const { clean, protection } = usePendingForm({
     label: `Исследование «${base.object.name}»`,
     epoch: base.epoch,
     dirty:
       !readonly &&
       (name !== base.object.name || question !== base.object.nextQuestion),
     text: `${name}\n\nСледующий вопрос: ${question}`,
+    recovery: {
+      context: `research:${object.id}`,
+      state: {
+        target: {
+          kind: "research",
+          trackId: object.trackId,
+          objectId: object.id,
+        },
+        fields: { name, question },
+        base: base.object,
+      },
+      restore: (state) => {
+        const restored = researchDraftState.parse(state);
+        if (fields.current) fields.current.open = true;
+        setSaved(false);
+        setName(restored.fields.name);
+        setQuestion(restored.fields.question);
+        setBase({ object: restored.base, epoch: base.epoch });
+      },
+    },
     save,
     discard: () => {
       setName(base.object.name);
@@ -153,6 +175,11 @@ export function ResearchDetails({
     .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
   return (
     <section className="research-details">
+      {!readonly && (
+        <p className="hint" data-testid="form-protection" role="status">
+          {protection}
+        </p>
+      )}
       {!readonly && (
         <MaterialExport
           target={{ objectId: object.id }}
@@ -203,7 +230,7 @@ export function ResearchDetails({
           })}
         </div>
       )}
-      <details>
+      <details ref={fields}>
         <summary>Вопрос и название исследования</summary>
         {changed && (
           <p className="notice">

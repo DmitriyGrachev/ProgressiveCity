@@ -4,6 +4,7 @@ export interface ArtVariant {
   kind: BuildingKind;
   color: string;
   stage: number;
+  owned?: boolean;
 }
 export type PreviewRenderer = (variant: ArtVariant) => Promise<string>;
 let renderer: PreviewRenderer | null = null;
@@ -28,7 +29,7 @@ export function registerPreviewRenderer(next: PreviewRenderer) {
   };
 }
 export function previewImage(variant: ArtVariant, render: PreviewRenderer) {
-  const key = `${variant.kind}:${variant.color.toLowerCase()}:${variant.stage}`;
+  const key = `${variant.kind}:${variant.color.toLowerCase()}:${variant.stage}:${Boolean(variant.owned)}`;
   const cached = images.get(key);
   if (cached) {
     images.delete(key);

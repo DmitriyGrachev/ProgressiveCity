@@ -54,6 +54,7 @@ export interface Building extends Rect {
   id: string;
   trackId?: string;
   learningObjectId?: string;
+  habitAdditionId?: string;
   kind: BuildingKind;
   name: string;
   color: string;
@@ -101,7 +102,8 @@ export interface Activity {
 }
 export interface ProgressEvent {
   id: string;
-  type: "activity" | "upgrade" | "construction" | "layout";
+  type: "activity" | "upgrade" | "construction" | "layout" | "habitAddition";
+  additionKind?: "park" | "plaza" | "pavilion";
   trackId?: string;
   learningObjectId?: string;
   sourceActivityId?: string;
