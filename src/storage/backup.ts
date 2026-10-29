@@ -14,6 +14,7 @@ import type { Attachment } from "../domain/model";
 
 import { ARCHIVE_LIMIT, EXPANDED_LIMIT, archiveFileLimit } from "./limits";
 import { encodeManifest, prepareArchive } from "./archive-format";
+import { readZipDirectory, verifyZipEntry } from "./zip-container";
 export { ARCHIVE_LIMIT, EXPANDED_LIMIT } from "./limits";
 const manifestSchema = z
   .object({
@@ -158,6 +159,7 @@ async function createArchive(
   return new Blob([zip], { type: "application/zip" });
 }
 function unpack(bytes: Uint8Array) {
+  const directory = readZipDirectory(bytes);
   const files: Record<string, Uint8Array> = Object.create(null) as Record<
     string,
     Uint8Array
@@ -200,6 +202,7 @@ function unpack(bytes: Uint8Array) {
           result.set(c, offset);
           offset += c.length;
         }
+        verifyZipEntry(result, directory.get(file.name));
         files[file.name] = result;
         completed++;
       }
@@ -209,7 +212,12 @@ function unpack(bytes: Uint8Array) {
   unzip.register(UnzipInflate);
   for (let i = 0; i < bytes.length; i += 1024)
     unzip.push(bytes.subarray(i, i + 1024), i + 1024 >= bytes.length);
-  if (completed !== count || !files["manifest.json"] || !files["data.json"])
+  if (
+    completed !== count ||
+    completed !== directory.size ||
+    !files["manifest.json"] ||
+    !files["data.json"]
+  )
     throw new Error("Архив неполный.");
   return files;
 }

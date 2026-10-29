@@ -233,21 +233,39 @@ export class CityService {
       if (description) await this.snapshot(description);
     });
   }
-  async updateTrack(input: Track) {
+  async updateTrack(input: Track, expectedEpoch?: string, expected?: Track) {
     if (!input.name.trim()) throw new Error("Название не может быть пустым.");
     return this.transaction(async () => {
+      await this.checkEpoch(expectedEpoch);
       const old = await this.track(input.id);
+      const fields = [
+        "name",
+        "type",
+        "description",
+        "goal",
+        "schedule",
+        "unit",
+        "comparison",
+        "limit",
+        "archived",
+      ] as const;
+      if (expected && fields.some((field) => old[field] !== expected[field]))
+        throw new Error(
+          "Направление изменено в другой вкладке. Ваш ввод сохранён в форме. Скопируйте нужный текст перед загрузкой актуальных полей.",
+        );
       dataSchema.shape.tracks.element.parse(input);
       if (old.type !== input.type)
         throw new Error(
           "Тип сохранённого направления закреплён. Создайте другое направление.",
         );
-      await this.db.tracks.put({
+      const updated = {
         ...input,
         balance: old.balance,
         stage: old.stage,
         createdAt: old.createdAt,
-      });
+      };
+      await this.db.tracks.put(updated);
+      return updated;
     });
   }
   async saveActivity(

@@ -1,4 +1,23 @@
-# Загрузка — ежедневное использование, 04.10.2026
+# Проверка аппаратного GPU — 29.10.2026
+
+Windows NT10.0.26200, Node22.23.2, установленный Edge156.0.4314.50 headless без SwiftShader flags,1440×1000. Renderer: `ANGLE (NVIDIA, NVIDIA GeForce RTX 5060 Laptop GPU, Direct3D11)`, подтверждён WebGL debug renderer и CDP SystemInfo. Настоящая подготовленная сборка `c79ea53db25d`, launcher45187, Cache-Control:no-store; личный origin не использовался. Одновременно другие тесты/сборки не выполнялись.
+
+На состояние:1 исключённая warmup-пара +10cold/10repeat. Перед каждой парой новый disposable context, валидный synthetic ZIP импортирован через публичный UI. Затем HTTP cache очищен/отключён для cold; repeat использует тот же context и естественные headers. Browser process/код/GPU предварительно прогреты импортом: это не cold OS/browser boot. Ready proxy — настоящий building-count и ещё2browser rAF; затем keyboard pan и wheel с изменением камеры. Изображения просмотрены. Action включает Playwright actuation, не является чистым handler time или FPS.
+
+| Состояние/загрузка | n | Ready median | Min–max | Разброс | Action median [min–max] |
+|---|---:|---:|---:|---:|---:|
+|100notes / cold|10|98.6ms|94.7–106.4|11.7|19.7 [19.3–23.8]ms|
+|100notes / repeat|10|103.4ms|98.7–112.5|13.8|19.9 [18.4–22.2]ms|
+|1000notes,100placements / cold|10|192.2ms|179.7–209.3|29.6|20.7 [19.3–23.8]ms|
+|1000notes,100placements / repeat|10|185.7ms|174.6–203.0|28.4|20.1 [19.7–21.4]ms|
+
+Фикстуры из аудита04.10:100notes×4700символов; large1000notes×4700,9tracks/9research buildings/91trees/30tinyPNG, JSON18,065,517bytes / ZIP18,077,516bytes. Это overhead небольших изображений, не30больших фотографий. Raw/summary/script: `.tools/stabilization-20261029/hardware-{raw,summary}.json`, `windows-smoke.mjs`; command exit0 в19-windows-gpu.json. Сохранялись все10значений без удаления выбросов.
+
+Вывод: текущая сборка откликается на проверенные действия в этих двух синтетических состояниях на данном GPU. Это не новый before/after benchmark, не SLA и не заявление о статистической значимости/p95. Старые серии ниже и аудит SwiftShader выполнялись в иных условиях и напрямую не сравниваются. Точное first-open, длительная работа с фотографиями и реальные занятия остаются отдельными измерениями/приёмкой. Производственных оптимизаций storage/rendering в этом этапе не вносилось.
+
+---
+
+# Исторические измерения — 04.10.2026
 
 Измерено заново до изменений (`33a7f9e`) и после окончательной сборки пакета. Windows, Node 22.23.2, Chromium 153.0.8010.12, headless SwiftShader, 1440×1000. Одинаковый скрипт и набор данных. По три запуска каждого состояния, новая одноразовая browser context на запуск, HTTP cache отключён через CDP; тестовые серверы других наборов завершены. Это не замер аппаратного GPU пользователя.
 

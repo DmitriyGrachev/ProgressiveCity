@@ -1,5 +1,47 @@
 # Progress City — отчёт для ревью
 
+## Стабилизация по roadmap — 29.10.2026
+
+База `3cb2c201cf9d46cd5e2ed85e37b86e7188da5444`. Три findings полного аудита исправлены; регрессии входят в обычные unit/e2e и preview config. Новых зависимостей, миграций, изменений экономики или ZIP writer нет. Личный5173/профиль/данные не использовались, подготовленный релиз исходного проекта не заменялся. Актуальный план: [ROADMAP](ROADMAP.md).
+
+**Исправления:** PC-AUD-001 — исходная редакция TrackForm и epoch сверяются внутри updateTrack; ввод остаётся при конфликте, актуальные поля загружаются явно, повторный save обновляет базу. Текущие balance/stage/createdAt сохранены; archive также защищён. Дополнительно исправлен найденный на ревью устаревший success после отказа. PC-AUD-002 — структурный preflight EOCD/catalog/local spans/descriptors до прежнего bounded Unzip, CRC/size после распаковки, затем прежние SHA256/schema/relations. STORE/DEFLATE/streaming и собственные v1/v2 поддерживаются; encrypted/ZIP64/SFX/padding вне записей не поддерживаются. PC-AUD-003 — muted `#596b60`, computed contrast≥4.5 и отсутствие horizontal overflow на1440×1000/390×844.
+
+### Свежая последовательная приёмка
+
+Windows NT10.0.26200, Node22.23.2, local npm12.0.2; установленный Chromium/SwiftShader, один worker,0automatic retries. Browser plugin not available: использован проектный Playwright в одноразовых contexts. Команды `node .tools/package/bin/npm-cli.js run <script>`, pretest lifecycle выполнены; наборы и серверы не работали параллельно.
+
+| Проверка | Фактический итог |
+|---|---|
+| lint / typecheck | PASS, exit0 каждый |
+| test:unit | **118/118**,15files,9.44s, exit0 |
+| test:e2e | **75/75**,4.9min, exit0 |
+| build | PASS, exit0; warning >500kB сохранён |
+| test:preview | **35/35**,2.0min, exit0;5optional entries graph PASS |
+| test:launcher | **6/6**, Windows CMD,13.66s, exit0 |
+| Дополнительный Windows/GPU | PASS, exit0; реальный Prepare/Start/Stop из другого cwd, кириллическая копия, port45187 |
+
+Штатные suites:0failed/0skipped/0retried. Проверены город/планировка/undo/redo/A-B, note/image/search/continuation, привычки/награды/конфликты, миграции/экспорт/импорт, ошибки хранения и optional retry. Новый native beforeunload использует настоящий browser dialog: dismiss сохраняет ввод без Activity/Event, accept закрывает страницу; PASS на dev и dist.
+
+Дополнительный сценарий: prepared release `c79ea53db25d`, Edge156.0.4314.50 headless, **NVIDIA RTX5060 / D3D11** (подтверждены renderer и CDP SystemInfo). Прежний synthetic v2→dailyJourney→note/image/result/question/habit/export→Stop/Start→те же таблицы, изображение и prepared pointer. Собственные contexts/server закрыты. Корневой prepared.json остался побайтно прежним. Все материалы синтетические.
+
+### Первые ошибки и ревью
+
+Полные логи/exit/timestamps/traces сохранены в `.tools/stabilization-20261029/`. Исходные RED unit01 и browser02 воспроизвели дефекты до фиксов. Ошибка нового async assertion исправлена до03 (10ZIP-regressions всё ещё RED);04target49/49 и07unit20/20 затем GREEN. В browser05 неверный getByLabel после загрузки textarea value исправлен на точный role/name без изменения ожиданий:06PASS. Дополнительный success-after-conflict воспроизведён10RED→11browser4/4GREEN. Первые падения не перезаписаны. Исходные тесты не ослаблялись.
+
+Read-only reviewers проверили CAS/UI и ZIP. Финальное независимое чтение после исправлений существенных замечаний не нашло; это не выдаётся за повторный test run.
+
+На GPU получены по10cold/10repeat после исключённого warmup:100notes median98.6/103.4ms;1000notes+100placements192.2/185.7ms; pan response median≈20ms, wheel действительно меняет камеру. Метод, min/max/range и ограничения — [PERFORMANCE](PERFORMANCE.md). Это не FPS/SLA и не доказательство ускорения относительно SwiftShader.
+
+Скриншоты реально открыты и просмотрены: [конфликт](review-evidence/stabilization-conflict.png), [узкий экран](review-evidence/stabilization-narrow.png), [GPU-город](review-evidence/stabilization-gpu.png). Старые tracked screenshots, перезаписанные тестами, сохранены в `.tools/.../generated-review-evidence` и возвращены к HEAD; добавлены только три новых.
+
+**Остаток:** техническая стабилизация закрыта. Системный default-browser через shell **NOT_RUN**: невозможно выбрать отдельный профиль без изменения launcher/Windows, личный профиль не запускался. Изолированный Edge не подменяет эту проверку. Реальные занятия пользователя — отдельная ручная продуктовая приёмка. Реальная квота/потеря питания/touch/другие браузеры этим этапом не сертифицированы.
+
+Recovery несохранённых форм остаётся в памяти; постоянные аварийные черновики, очистка изображений и свежесть backup — предложения следующей итерации. После своей archive при открытой изменённой TrackForm возможен консервативный конфликт: сохранённое не затирается, ввод переносят через явную загрузку полей. Dev-advisory прошлого аудита не исправлялся изменением lockfile. Installer/CI/лицензия относятся к дальнейшему распространению.
+
+Git-передача по standing-разрешению AGENTS выполняется после проверок, без force/PR/deploy; точный SHA/remote verification фиксируются итоговым сообщением.
+
+---
+
 ## Ежедневное использование — 04.10.2026
 
 Пакет F1–F6 реализован поверх `33a7f9e1fe57a5001798a23b75bff47a7abfba92` в прежнем проекте. Экономика, владельцы, этапы, схема БД, формат городского ZIP и lockfile сохранены; зависимостей не добавлено. Главный экран остаётся городом. Подробная матрица — [DAILY_RELEASE_REVIEW.md](DAILY_RELEASE_REVIEW.md), дизайн/границы — [DAILY_RELEASE_SCOPE.md](DAILY_RELEASE_SCOPE.md), решения — [ARCHITECTURE.md](ARCHITECTURE.md).

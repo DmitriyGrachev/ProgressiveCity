@@ -258,12 +258,16 @@ export function TrackPanel({ data, track }: { data: CityData; track: Track }) {
         )}
         {activeTab === "edit" && (
           <>
-            <TrackForm track={track} />
+            <TrackForm track={track} epoch={data.storageEpoch} />
             <hr />
             <button
               onClick={() =>
                 void act(() =>
-                  service.updateTrack({ ...track, archived: !track.archived }),
+                  service.updateTrack(
+                    { ...track, archived: !track.archived },
+                    data.storageEpoch,
+                    track,
+                  ),
                 )
               }
             >

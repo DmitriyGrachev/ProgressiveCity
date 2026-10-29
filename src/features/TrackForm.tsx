@@ -4,9 +4,11 @@ import { service } from "../storage/service";
 import { act, useUI } from "../app/ui";
 export function TrackForm({
   track,
+  epoch,
   onDone,
 }: {
   track?: Track;
+  epoch?: string;
   onDone?: () => void;
 }) {
   const [name, setName] = useState(track?.name ?? "");
@@ -20,11 +22,32 @@ export function TrackForm({
     track?.comparison ?? "min",
   );
   const [busy, setBusy] = useState(false);
+  const [base, setBase] = useState({ track, epoch });
+  const [saved, setSaved] = useState(false);
+  const changed = Boolean(
+    track &&
+    base.track &&
+    (
+      [
+        "name",
+        "description",
+        "goal",
+        "schedule",
+        "unit",
+        "comparison",
+        "limit",
+        "archived",
+      ] as const
+    ).some((field) => track[field] !== base.track![field]),
+  );
+  const invalidated = base.epoch !== epoch;
   return (
     <form
+      onChange={() => setSaved(false)}
       onSubmit={(e) => {
         e.preventDefault();
         setBusy(true);
+        setSaved(false);
         void act(async () => {
           const fields = {
             name,
@@ -36,111 +59,149 @@ export function TrackForm({
             comparison,
             limit: limit === "" ? undefined : Number(limit),
           };
-          if (track) await service.updateTrack({ ...track, ...fields });
-          else {
+          if (base.track) {
+            const updated = await service.updateTrack(
+              { ...base.track, ...fields },
+              base.epoch,
+              base.track,
+            );
+            setBase({ track: updated, epoch: base.epoch });
+            setSaved(true);
+          } else {
             const created = await service.createTrack(fields);
-            useUI
-              .getState()
-              .set({
-                trackId: created.id,
-                panel: "track",
-                objectId: null,
-                resultRequest: null,
-                noteId: null,
-                buildingId: null,
-              });
+            useUI.getState().set({
+              trackId: created.id,
+              panel: "track",
+              objectId: null,
+              resultRequest: null,
+              noteId: null,
+              buildingId: null,
+            });
           }
           onDone?.();
         }).finally(() => setBusy(false));
       }}
     >
-      <label>
-        Название направления
-        <input
-          required
-          maxLength={120}
-          value={name}
-          onChange={(e) => setName(e.target.value)}
-        />
-      </label>
-      <label>
-        Тип направления
-        <select
-          disabled={Boolean(track)}
-          value={type}
-          onChange={(e) => setType(e.target.value as TrackType)}
-        >
-          {Object.entries(labels.tracks).map(([v, label]) => (
-            <option key={v} value={v}>
-              {label}
-            </option>
-          ))}
-        </select>
-      </label>
-      <label>
-        Описание
-        <textarea
-          value={description}
-          onChange={(e) => setDescription(e.target.value)}
-        />
-      </label>
-      {["habit", "reduce"].includes(type) && (
-        <>
-          <label>
-            Моя цель
-            <textarea
-              value={goal}
-              onChange={(e) => setGoal(e.target.value)}
-              placeholder="Я сам определяю, что считаю выполнением"
-            />
-          </label>
-          <label>
-            Расписание
-            <input
-              maxLength={250}
-              value={schedule}
-              onChange={(e) => setSchedule(e.target.value)}
-              placeholder="Например: пн, ср, пт"
-            />
-          </label>
-          <div className="row">
-            <label>
-              Условие
-              <select
-                value={comparison}
-                onChange={(e) => setComparison(e.target.value as "min" | "max")}
-              >
-                <option value="min">Не меньше</option>
-                <option value="max">Не больше</option>
-              </select>
-            </label>
-            <label>
-              Граница
-              <input
-                type="number"
-                step="any"
-                value={limit}
-                onChange={(e) => setLimit(e.target.value)}
-              />
-            </label>
-            <label>
-              Единица
-              <input
-                maxLength={80}
-                value={unit}
-                onChange={(e) => setUnit(e.target.value)}
-              />
-            </label>
-          </div>
-          <p className="hint">
-            Расписание — ваш ориентир. Пропуски не снимают очки. Направление
-            можно оставить без здания на карте.
-          </p>
-        </>
+      {changed && (
+        <p className="notice">
+          Сохранённое направление изменилось. Ваши поля остались в форме.
+          Скопируйте нужный текст перед загрузкой актуальных полей.
+        </p>
       )}
-      <button className="primary" disabled={busy} type="submit">
-        {track ? "Сохранить направление" : "Создать направление"}
-      </button>
+      <fieldset disabled={busy || invalidated}>
+        <label>
+          Название направления
+          <input
+            required
+            maxLength={120}
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+          />
+        </label>
+        <label>
+          Тип направления
+          <select
+            disabled={Boolean(track)}
+            value={type}
+            onChange={(e) => setType(e.target.value as TrackType)}
+          >
+            {Object.entries(labels.tracks).map(([v, label]) => (
+              <option key={v} value={v}>
+                {label}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label>
+          Описание
+          <textarea
+            value={description}
+            onChange={(e) => setDescription(e.target.value)}
+          />
+        </label>
+        {["habit", "reduce"].includes(type) && (
+          <>
+            <label>
+              Моя цель
+              <textarea
+                value={goal}
+                onChange={(e) => setGoal(e.target.value)}
+                placeholder="Я сам определяю, что считаю выполнением"
+              />
+            </label>
+            <label>
+              Расписание
+              <input
+                maxLength={250}
+                value={schedule}
+                onChange={(e) => setSchedule(e.target.value)}
+                placeholder="Например: пн, ср, пт"
+              />
+            </label>
+            <div className="row">
+              <label>
+                Условие
+                <select
+                  value={comparison}
+                  onChange={(e) =>
+                    setComparison(e.target.value as "min" | "max")
+                  }
+                >
+                  <option value="min">Не меньше</option>
+                  <option value="max">Не больше</option>
+                </select>
+              </label>
+              <label>
+                Граница
+                <input
+                  type="number"
+                  step="any"
+                  value={limit}
+                  onChange={(e) => setLimit(e.target.value)}
+                />
+              </label>
+              <label>
+                Единица
+                <input
+                  maxLength={80}
+                  value={unit}
+                  onChange={(e) => setUnit(e.target.value)}
+                />
+              </label>
+            </div>
+            <p className="hint">
+              Расписание — ваш ориентир. Пропуски не снимают очки. Направление
+              можно оставить без здания на карте.
+            </p>
+          </>
+        )}
+        <button className="primary" disabled={busy} type="submit">
+          {track ? "Сохранить направление" : "Создать направление"}
+        </button>
+        {saved && !changed && !invalidated && (
+          <p role="status">Направление сохранено.</p>
+        )}
+        {changed && (
+          <button
+            type="button"
+            onClick={() => {
+              setName(track!.name);
+              setType(track!.type);
+              setDescription(track!.description);
+              setGoal(track!.goal);
+              setSchedule(track!.schedule);
+              setUnit(track!.unit);
+              setLimit(track!.limit?.toString() ?? "");
+              setComparison(track!.comparison);
+              setBase({ track, epoch });
+              setSaved(false);
+              useUI.getState().set({ error: "" });
+            }}
+          >
+            Загрузить актуальное направление
+          </button>
+        )}
+      </fieldset>
     </form>
   );
 }

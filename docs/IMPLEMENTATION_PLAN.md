@@ -1,3 +1,18 @@
+# Стабилизация по roadmap — 29.10.2026
+
+Исполняется поверх `3cb2c20` одним разработчиком; независимые reviewer только читают. План `ROADMAP.md`, основания — три подтверждённых findings полного аудита.
+
+- [x] R1: штатные RED unit/browser для stale TrackForm, затем expected fields + epoch в service и UI с явным разрешением конфликта.
+- [x] R2: RED для обрезанного/несогласованного ZIP, затем отдельный структурный preflight перед существующим bounded Unzip. Сохранить legacy и DEFLATE/streaming совместимость.
+- [x] R3: RED browser contrast → корректный muted цвет; проверка desktop/narrow.
+- [x] R4: полный последовательный набор, проверка dist и Windows в одноразовых профилях/портах; новые screenshot/логи, без личного 5173.
+- [x] R5: нативный beforeunload и доступный GPU smoke; ручные пункты не выдавать за PASS.
+- [x] R6: актуальные STATUS/REVIEW_REPORT/README/ARCHITECTURE; verified commit/push по AGENTS. Остальные этапы roadmap оставить с честными критериями.
+
+Решения: optimistic отказ при конфликте редактируемых полей; текущие balance/stage/createdAt сохраняются. ZIP writer/DB не меняются. Предварительная проверка ZIP не заменяет ограниченную распаковку, SHA256 и проверку отношений. Проверки сохраняются в `.tools/stabilization-20261029/`; проверки запуска последовательно.
+
+---
+
 # Ежедневное использование — 04.10.2026
 
 Текущий пакет F1–F6 поверх `33a7f9e`. Краткий дизайн — DAILY_RELEASE_SCOPE.md, подробные этапы и доказательства — DAILY_RELEASE_PLAN.md / DAILY_RELEASE_REVIEW.md. Один исполнитель, отдельный reviewer только чтением.
